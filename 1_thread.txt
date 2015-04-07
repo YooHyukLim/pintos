@@ -5,6 +5,7 @@ void timer_interrupt
 
 //thread.h
 struct thread
+void thread_push_by_priority
 
 //thread.c
 void thread_create
@@ -13,9 +14,22 @@ void thread_yield
 void thread_set_priority
 void thread_push_by_priority
 
-//sync.h
+void thread_set_priority_by_donation
+void thread_set_original_priority
+void thread_set_priority
+void init_thread
+
+//sync.c
 void sema_down
 void sema_up
 struct semaphore_elem
 void cond_push_by_priority
 void cont_wait
+
+void priority_stack_push
+int get_original_priority_from_lock
+void lock_acquire
+void lock_release
+
+//sync.h
+struct lock_elem

@@ -341,7 +341,8 @@ thread_foreach (thread_action_func *func, void *aux)
 }
 
 /* Set the priority to the selected thread and reposition
-   the thread in list by priority. */
+   the thread in list by priority. 
+   This function doesn't care about list's type. */
 void
 thread_set_priority_by_donation (struct thread *t, int new_priority)
 {
@@ -378,8 +379,10 @@ thread_set_priority_by_donation (struct thread *t, int new_priority)
   pos->next = cur;
 }
 
+/* This function is same as thread_set_priority, but it doesn't care
+   of whether the priority is original or not. */
 void
-thread_set_original_priority (int new_priority)
+thread_set_current_priority (int new_priority)
 {
   thread_current ()->priority = new_priority;
   
@@ -390,16 +393,19 @@ thread_set_original_priority (int new_priority)
     thread_yield ();
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Sets the current thread's priority to NEW_PRIORITY. If the priority is not
+   original, find the address of original and fix it. */
 void
 thread_set_priority (int new_priority) 
 {
   struct thread *t = thread_current ();
   struct lock_elem *le = NULL;
 
+  /* If thread holds locks, get the priority of the oldest lock.s */
   if (!list_empty (&t->priority_stack))
     le = list_entry (list_rbegin (&t->priority_stack), struct lock_elem, elem);
   
+  /* Set priority to the origianl priority. */
   if (le == NULL || t->priority == le->priority)
     t->priority = new_priority;
   else

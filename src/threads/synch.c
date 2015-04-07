@@ -45,7 +45,6 @@ struct semaphore_elem
 
 static void priority_stack_push (struct thread *, struct lock *);
 static int get_original_priority_from_lock (struct list * , struct lock *);
-static void set_original_priority_of_lock (struct list *, struct lock *, int);
 
 static void cond_push_by_priority (struct list *, struct semaphore_elem *);
 
@@ -256,15 +255,24 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  /* If there is a holder of the lock, donate the priority to
+     the holder. */
   old_level = intr_disable ();
   if (lock->holder != NULL) {
 
     priority = thread_get_priority ();
     lock_holder = lock->holder;
 
+    /* Push holder and lock to priority stack. */
     priority_stack_push (lock_holder, lock);
+
+    /* Modify the priority of lock_holder to new priority
+       donated from the thread which acquired the lock. */
     thread_set_priority_by_donation (lock_holder, priority);
 
+    /* If the holder's status is BLOCKED, it means there can be
+       some possibility that the holder also acquired a lock.
+       So repeat actions above until finding holder unblocked. */
     while (lock_holder->status == THREAD_BLOCKED
         && lock_holder->lock_acquired != NULL) {
       l = lock_holder->lock_acquired;
@@ -274,6 +282,7 @@ lock_acquire (struct lock *lock)
       thread_set_priority_by_donation (lock_holder, priority);
     }
 
+    /* Set that current thread is acquiring the lock. */
     cur_t->lock_acquired = lock;
   }
   intr_set_level (old_level);
@@ -339,24 +348,6 @@ get_original_priority_from_lock (struct list *list, struct lock *lock)
   return result;
 }
 
-/* Modify the original priority of the lock. */
-static void
-set_original_priority_of_lock (struct list *list, struct lock *lock, int  priority)
-{
-  struct list_elem *pos = NULL;
-  struct lock_elem *entry = NULL;
-
-  for (pos = list_begin (list); pos != list_end (list); pos = pos->next) {
-
-    entry = list_entry (pos, struct lock_elem, elem);
-
-    if (entry->lock == lock) {
-      entry->priority = priority;
-      return;
-    }
-  }
-}
-
 /* Releases LOCK, which must be owned by the current thread.
 
    An interrupt handler cannot acquire a lock, so it does not
@@ -376,7 +367,7 @@ lock_release (struct lock *lock)
 
   if ((priority = get_original_priority_from_lock
         (&cur_t->priority_stack, lock)) != -1) {
-    thread_set_original_priority (priority);
+    thread_set_current_priority (priority);
   }
 }
 
