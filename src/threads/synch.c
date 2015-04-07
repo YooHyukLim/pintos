@@ -33,12 +33,6 @@
 #include "threads/thread.h"
 #include "threads/malloc.h"
 
-struct lock_elem {
-  int priority;
-  struct lock *lock;
-  struct list_elem elem;
-  struct list_elem rl_elem;
-};
 
 /* One semaphore in a list. */
 struct semaphore_elem 
@@ -238,6 +232,7 @@ priority_stack_push (struct thread *lock_holder, struct lock *lock)
   le->priority = lock_holder->priority;
   le->lock = lock;
   list_push_front (&lock_holder->priority_stack, &le->elem);
+  list_push_front (&lock_holder->release_first, &le->rl_elem);
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -253,6 +248,7 @@ lock_acquire (struct lock *lock)
 {
   int priority;
   enum intr_level old_level;
+  struct lock *l = NULL;
   struct thread *lock_holder = NULL;
   struct thread *cur_t = thread_current ();
 
@@ -271,9 +267,10 @@ lock_acquire (struct lock *lock)
 
     while (lock_holder->status == THREAD_BLOCKED
         && lock_holder->lock_acquired != NULL) {
-      lock_holder = lock_holder->lock_acquired->holder;
+      l = lock_holder->lock_acquired;
+      lock_holder = l->holder;
 
-      priority_stack_push (lock_holder, lock);
+      priority_stack_push (lock_holder, l);
       thread_set_priority_by_donation (lock_holder, priority);
     }
 
@@ -311,9 +308,10 @@ lock_try_acquire (struct lock *lock)
 static int
 get_original_priority_from_lock (struct list *list, struct lock *lock)
 {
+  int result = -1;
   struct list_elem *pos = NULL;
   struct lock_elem *entry = NULL;
-  int result = -1;
+  struct thread *cur_t = thread_current ();
 
   for (pos = list_begin (list); pos != list_end (list); pos = pos->next) {
 
@@ -321,15 +319,17 @@ get_original_priority_from_lock (struct list *list, struct lock *lock)
 
     if (entry->lock == lock) {
 
-//      if (pos != list_begin (list)
-//          && thread_current ()->release_first != NULL
-//          && thread_current ()->release_first != lock) {
-//        list_entry (pos->prev, struct lock_elem, elem)->priority
-//          = entry->priority;
-//      } else
+      if (&entry->rl_elem != list_begin (&cur_t->release_first)) {
+        list_entry (
+            list_begin (&cur_t->release_first), 
+            struct lock_elem, 
+            rl_elem)->priority
+          = entry->priority;
+      } else
         result = entry->priority;
 
       list_remove (pos);
+      list_remove (&entry->rl_elem);
       free (entry);
       
       return result;
@@ -374,16 +374,9 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 
-  if ((priority = get_original_priority_from_lock (&cur_t->priority_stack, lock))
-      != -1) {
-    thread_set_priority (priority);
-
-    if (lock == cur_t->release_first)
-      cur_t->release_first = NULL;
-        //} else {
-      //set_original_priority_of_lock
-      //  (&cur_t->priority_stack, cur_t->release_first, priority);
-    //}
+  if ((priority = get_original_priority_from_lock
+        (&cur_t->priority_stack, lock)) != -1) {
+    thread_set_original_priority (priority);
   }
 }
 

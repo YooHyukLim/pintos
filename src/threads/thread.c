@@ -378,11 +378,32 @@ thread_set_priority_by_donation (struct thread *t, int new_priority)
   pos->next = cur;
 }
 
+void
+thread_set_original_priority (int new_priority)
+{
+  thread_current ()->priority = new_priority;
+  
+  /* Apply the priority and rescheduling.*/
+  if (!list_empty (&ready_list)
+      && new_priority
+        < list_entry (list_begin (&ready_list), struct thread, elem)->priority)
+    thread_yield ();
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread *t = thread_current ();
+  struct lock_elem *le = NULL;
+
+  if (!list_empty (&t->priority_stack))
+    le = list_entry (list_rbegin (&t->priority_stack), struct lock_elem, elem);
+  
+  if (le == NULL || t->priority == le->priority)
+    t->priority = new_priority;
+  else
+    le->priority = new_priority;
   
   /* Apply the priority and rescheduling.*/
   if (!list_empty (&ready_list)
@@ -519,8 +540,8 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* Initialize lock_acquired and priority_stack. */
   list_init (&t->priority_stack);
+  list_init (&t->release_first);
   t->lock_acquired = NULL;
-  t->release_first = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

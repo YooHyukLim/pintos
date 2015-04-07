@@ -99,7 +99,7 @@ struct thread
 
     struct list priority_stack;         /* List for original prioritys */
     struct lock *lock_acquired;         /* The Lock which this thread acquiring */
-    struct lock *release_first;
+    struct list release_first;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -140,6 +140,7 @@ void thread_foreach (thread_action_func *, void *);
 int thread_get_priority (void);
 void thread_set_priority (int);
 void thread_set_priority_by_donation (struct thread *, int);
+void thread_set_original_priority (int);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
