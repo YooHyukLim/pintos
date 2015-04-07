@@ -94,8 +94,12 @@ struct thread
     struct list_elem elem;              /* List element. */
 
     /* Used for timer_sleep. */
-    struct list_elem block_elem;        /* List element Blocked. */
-    int64_t end_time;                  /* End time of sleeping. */
+    struct list_elem block_elem;        /* List for element Blocked. */
+    int64_t end_time;                   /* End time of sleeping. */
+
+    struct list priority_stack;         /* List for original prioritys */
+    struct lock *lock_acquired;         /* The Lock which this thread acquiring */
+    struct lock *release_first;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -135,6 +139,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+void thread_set_priority_by_donation (struct thread *, int);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

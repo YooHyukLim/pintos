@@ -340,6 +340,44 @@ thread_foreach (thread_action_func *func, void *aux)
   }
 }
 
+/* Set the priority to the selected thread and reposition
+   the thread in list by priority. */
+void
+thread_set_priority_by_donation (struct thread *t, int new_priority)
+{
+  struct list_elem *pos = t->elem.prev;
+  struct list_elem *cur = &t->elem;
+
+  /* Set the new priority. */
+  t->priority = new_priority;
+
+  /* Check whether the prev of the thread is head of the list or not.
+     Or check whether the priority of prev is larger than the selected
+     thread's. */
+  if (pos->prev == NULL
+      || list_entry (pos, struct thread, elem)->priority
+        > new_priority)
+    return;
+
+  /* First of all, delete the elem of the thread from the list. */
+  cur->prev->next = cur->next;
+  cur->next->prev = cur->prev;
+
+  /* Find where the thread be positioned in the list by priority.
+     The priority of the thread must be small than its prev's. */
+  for (pos = pos->prev; pos->prev != NULL; pos = pos->prev) {
+    if (list_entry (pos, struct thread, elem)->priority
+        >= new_priority)
+      break;
+  }
+
+  /* Set the position. */
+  cur->prev = pos;
+  cur->next = pos->next;
+  pos->next->prev = cur;
+  pos->next = cur;
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
@@ -478,6 +516,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+
+  /* Initialize lock_acquired and priority_stack. */
+  list_init (&t->priority_stack);
+  t->lock_acquired = NULL;
+  t->release_first = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
