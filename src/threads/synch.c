@@ -257,9 +257,9 @@ lock_acquire (struct lock *lock)
 
   /* If there is a holder of the lock, donate the priority to
      the holder. */
-  old_level = intr_disable ();
-  if (lock->holder != NULL) {
-
+  if (!thread_mlfqs && lock->holder != NULL) {
+    old_level = intr_disable ();
+  
     priority = thread_get_priority ();
     lock_holder = lock->holder;
 
@@ -268,7 +268,7 @@ lock_acquire (struct lock *lock)
 
     /* Modify the priority of lock_holder to new priority
        donated from the thread which acquired the lock. */
-    thread_set_priority_by_donation (lock_holder, priority);
+    thread_set_priority_and_repos (lock_holder, priority);
 
     /* If the holder's status is BLOCKED, it means there can be
        some possibility that the holder also acquired a lock.
@@ -279,13 +279,14 @@ lock_acquire (struct lock *lock)
       lock_holder = l->holder;
 
       priority_stack_push (lock_holder, l);
-      thread_set_priority_by_donation (lock_holder, priority);
+      thread_set_priority_and_repos (lock_holder, priority);
     }
 
     /* Set that current thread is acquiring the lock. */
     cur_t->lock_acquired = lock;
+    
+    intr_set_level (old_level);
   }
-  intr_set_level (old_level);
 
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
@@ -365,7 +366,7 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 
-  if ((priority = get_original_priority_from_lock
+  if (!thread_mlfqs && (priority = get_original_priority_from_lock
         (&cur_t->priority_stack, lock)) != -1) {
     thread_set_current_priority (priority);
   }

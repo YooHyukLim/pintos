@@ -24,6 +24,9 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+/* The value of 2^14. */
+#define FIXED_COEF 16384
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -97,9 +100,14 @@ struct thread
     struct list_elem block_elem;        /* List for element Blocked. */
     int64_t end_time;                   /* End time of sleeping. */
 
-    struct list priority_stack;         /* List for original prioritys */
-    struct lock *lock_acquired;         /* The Lock which this thread acquiring */
-    struct list release_first;
+    /* Used for priority-donate. */
+    struct list priority_stack;         /* List for original prioritys. */
+    struct lock *lock_acquired;         /* The Lock which this thread acquiring/ */
+    struct list release_first;          /* List for locks which
+                                           the thread should release. */
+
+    int nice;                           /* Nice value of this thread. */
+    int recent_cpu;                     /* Recent cpu value of this thread. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -113,6 +121,10 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+/* List of all processes.  Processes are added to this list
+   when they are first scheduled and removed when they exit. */
+extern struct list all_list;
 
 void thread_init (void);
 void thread_start (void);
@@ -139,12 +151,15 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-void thread_set_priority_by_donation (struct thread *, int);
+void thread_set_priority_and_repos (struct thread *, int);
 void thread_set_current_priority (int);
+void thread_cal_priority (struct thread *);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
+void thread_cal_recent_cpu (struct thread *);
 int thread_get_recent_cpu (void);
+void thread_cal_load_avg (void);
 int thread_get_load_avg (void);
 
 void thread_push_by_priority (struct list *, struct thread *);
