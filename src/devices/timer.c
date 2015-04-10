@@ -105,7 +105,7 @@ timer_sleep (int64_t ticks)
   struct thread *tmp = NULL;
   struct list_elem *pos = NULL;
   struct list_elem *end = list_end (&timerList);
-
+  
   ASSERT (intr_get_level () == INTR_ON);
 
   /* Disable the interrupt for blocking the current thread. */
@@ -217,13 +217,37 @@ timer_interrupt (struct intr_frame *args UNUSED)
   /* Check whether there is a thread which should be unblocked
      in the timerList. And if there is, unblock and delete
      it from the list. */
+  int64_t cur_ticks;
   struct thread *tmp = NULL;
   struct list_elem *pos = NULL;
-  struct list_elem *end = list_end (&timerList);
+  struct list_elem *end = NULL;
  
-  ticks++;
-  thread_tick (); 
+  cur_ticks = ++ticks;
+  thread_tick ();
 
+  if (thread_mlfqs) {
+    end = list_end (&all_list);
+    
+    if (cur_ticks % TIMER_FREQ == 0) {
+    
+      thread_cal_load_avg ();
+      for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
+        tmp = list_entry (pos, struct thread, allelem);
+        thread_cal_recent_cpu (tmp);
+        thread_cal_priority (tmp);
+      }
+
+    } else if (cur_ticks % 4 == 0) {
+      
+      for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
+        tmp = list_entry (pos, struct thread, allelem);
+        thread_cal_priority (tmp);
+      }
+
+    }
+  }
+ 
+  end = list_end (&timerList);
   for (pos = list_begin (&timerList); pos != end; pos = pos->next) {
     
     tmp = list_entry (pos, struct thread, block_elem);
