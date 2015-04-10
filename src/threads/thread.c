@@ -241,7 +241,7 @@ thread_block (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   cur_t->status = THREAD_BLOCKED;
-  if (cur_t != idle_thread)
+  if (cur_t != idle_thread || strcmp (cur_t->name, "idle"))
     ready_threads--;
   schedule ();
 }
@@ -272,8 +272,9 @@ thread_unblock (struct thread *t)
     list_push_back (&ready_list_mlfqs[t->priority], &t->elem);
   //list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
-  if (t != idle_thread)
+  if (t != idle_thread || strcmp (t->name, "idle")) {
     ready_threads++;
+  }
   
   intr_set_level (old_level);
 }
@@ -328,6 +329,7 @@ thread_exit (void)
   intr_disable ();
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
+  ready_threads--;
   schedule ();
   NOT_REACHED ();
 }
@@ -378,8 +380,6 @@ thread_cal_priority (struct thread *t)
 {
   int i;
   int priority = t->priority;
-
-  ASSERT (intr_get_level () == INTR_OFF);
 
   if (t == idle_thread || !strcmp (t->name, "idle"))
     return;
@@ -510,12 +510,10 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice) 
 {
-  enum intr_level old_level = intr_disable ();
   struct thread *cur_t = thread_current ();
   cur_t->nice = nice;
 
   thread_cal_priority (cur_t);
-  intr_set_level (old_level);
 }
 
 /* Returns the current thread's nice value. */
@@ -528,6 +526,7 @@ thread_get_nice (void)
 void
 thread_cal_load_avg (void)
 {
+  ASSERT (intr_get_level () == INTR_OFF);
   /* 16110 = Fixed-Point Real Number of 59/60. */
   /* 273 = Fixed-Point Real Number of 1/60. */
   load_avg = (((int64_t) 16110) * load_avg / FIXED_COEF)

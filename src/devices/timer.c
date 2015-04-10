@@ -224,7 +224,21 @@ timer_interrupt (struct intr_frame *args UNUSED)
  
   cur_ticks = ++ticks;
   thread_tick ();
-
+  
+  end = list_end (&timerList);
+  for (pos = list_begin (&timerList); pos != end; pos = pos->next) {
+    
+    tmp = list_entry (pos, struct thread, block_elem);
+    
+    if (tmp->end_time <= ticks) {
+      
+      thread_unblock (tmp);
+      list_remove (pos);
+      
+    } else
+      break;
+  }
+  
   if (thread_mlfqs) {
     end = list_end (&all_list);
     
@@ -245,20 +259,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
       }
 
     }
-  }
- 
-  end = list_end (&timerList);
-  for (pos = list_begin (&timerList); pos != end; pos = pos->next) {
-    
-    tmp = list_entry (pos, struct thread, block_elem);
-    
-    if (tmp->end_time <= ticks) {
-      
-      thread_unblock (tmp);
-      list_remove (pos);
-      
-    } else
-      break;
   }
 }
 
