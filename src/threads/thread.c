@@ -148,7 +148,8 @@ thread_tick (void)
 #endif
   else {
     kernel_ticks++;
-    t->recent_cpu += FIXED_COEF;
+    if (thread_mlfqs)
+      t->recent_cpu += FIXED_COEF;
   }
 
   /* Enforce preemption. */
@@ -378,6 +379,8 @@ thread_cal_priority (struct thread *t)
   int i;
   int priority = t->priority;
 
+  ASSERT (intr_get_level () == INTR_OFF);
+
   if (t == idle_thread || !strcmp (t->name, "idle"))
     return;
   
@@ -497,10 +500,12 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
+  enum intr_level old_level = intr_disable ();
   struct thread *cur_t = thread_current ();
   cur_t->nice = nice;
 
   thread_cal_priority (cur_t);
+  intr_set_level (old_level);
 }
 
 /* Returns the current thread's nice value. */
