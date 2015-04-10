@@ -391,19 +391,29 @@ thread_cal_priority (struct thread *t)
   else if (t->priority < PRI_MIN)
     t->priority = PRI_MIN;
 
-  if (t->priority != priority) {
-    if (t->status == THREAD_RUNNING) {
   
-      if (!intr_context ()) {
+  if (t->priority != priority) {
+    if (!intr_context()) {
+
+      for (i = priority; i > t->priority; i--)
+        if (!list_empty (&ready_list_mlfqs[i])) {
+          thread_yield ();
+          break;
+        }
+
+    } else {
+
+      if (t->status == THREAD_RUNNING)
         for (i = priority; i > t->priority; i--)
-          if (!list_empty (&ready_list_mlfqs[i]))
-            thread_yield ();
-      }
-      
-    } else if (t->status == THREAD_READY) {
-      list_push_back (&ready_list_mlfqs[t->priority], &t->elem);
-    } else if (t->status == THREAD_BLOCKED) {
-      thread_set_priority_and_repos (t, t->priority);
+          if (!list_empty (&ready_list_mlfqs[i])) {
+            intr_yield_on_return ();
+            break;
+          }
+      else if (t->status == THREAD_READY)
+        list_push_back (&ready_list_mlfqs[t->priority], &t->elem);
+      else if (t->status == THREAD_BLOCKED)
+        thread_set_priority_and_repos (t, t->priority);
+
     }
   }
 }
@@ -498,7 +508,7 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
   enum intr_level old_level = intr_disable ();
   struct thread *cur_t = thread_current ();
