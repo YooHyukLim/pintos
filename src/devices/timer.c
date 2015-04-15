@@ -219,8 +219,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
  
   ticks++;
   /* Check whether there is a thread which should be unblocked
-     in the sleep_list. And if there is, unblock and delete
-     it from the list. */
+     in the sleep_list. And if there is, unblock the thread and delete
+     the list element from the list. */
   end = list_end (&sleep_list);
   for (pos = list_begin (&sleep_list); pos != end; pos = pos->next) {
     
