@@ -45,7 +45,6 @@ struct semaphore_elem
 
 static void priority_stack_push (struct thread *, struct lock *);
 static int get_original_priority_from_lock (struct list * , struct lock *);
-
 static void cond_push_by_priority (struct list *, struct semaphore_elem *);
 
 
@@ -230,7 +229,13 @@ priority_stack_push (struct thread *lock_holder, struct lock *lock)
   le = (struct lock_elem *) malloc (sizeof (struct lock_elem));
   le->priority = lock_holder->priority;
   le->lock = lock;
+
+  /* Push the original priority with the lock in the stack. */
   list_push_front (&lock_holder->priority_stack, &le->elem);
+
+  /* Push the lock which should be released for first in the stack.
+     The lock which should be released for first means this lock is
+     being acquiring by a thread which has a high priority. */
   list_push_front (&lock_holder->release_first, &le->rl_elem);
 }
 
@@ -366,8 +371,10 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 
-  if (!thread_mlfqs && (priority = get_original_priority_from_lock
-        (&cur_t->priority_stack, lock)) != -1) {
+  /* Recover the priority of current thread, if its priority has
+     been donated. */
+  if (!thread_mlfqs && (priority =
+        get_original_priority_from_lock (&cur_t->priority_stack, lock)) != -1) {
     thread_set_current_priority (priority);
   }
 }

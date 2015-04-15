@@ -20,8 +20,9 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
-int load_avg;
-int ready_threads;
+int load_avg;              /* Load avg of this program. */
+int ready_threads;         /* The count of number of thread
+                              in readylist. */
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -146,11 +147,8 @@ thread_tick (void)
   else if (t->pagedir != NULL)
     user_ticks++;
 #endif
-  else {
+  else
     kernel_ticks++;
-    if (thread_mlfqs)
-      t->recent_cpu += FIXED_COEF;
-  }
 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -241,8 +239,12 @@ thread_block (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   cur_t->status = THREAD_BLOCKED;
+
+  /* If the thread blocked is not idle thread, then substact 1
+     from ready threads. */
   if (cur_t != idle_thread || strcmp (cur_t->name, "idle"))
     ready_threads--;
+
   schedule ();
 }
 
@@ -269,9 +271,14 @@ thread_unblock (struct thread *t)
   if (!thread_mlfqs)
     thread_push_by_priority (&ready_list, t);
   else
+    /* If using mlfqs, use arry list for ready list rather than
+       using list for ready list. */
     list_push_back (&ready_list_mlfqs[t->priority], &t->elem);
   //list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
+
+  /* If the thread unblocked is not idle thread, then
+     add 1 ready_threads. */
   if (t != idle_thread || strcmp (t->name, "idle")) {
     ready_threads++;
   }
@@ -329,6 +336,7 @@ thread_exit (void)
   intr_disable ();
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
+  /* When exit from thread, also substract 1 from ready_thread. */
   ready_threads--;
   schedule ();
   NOT_REACHED ();
@@ -374,7 +382,8 @@ thread_foreach (thread_action_func *func, void *aux)
   }
 }
 
-/* When use mlfqs, calculate the priority by recent_cpu and nice. */
+/* When use mlfqs, calculate the priority by recent_cpu and nice.
+   Use shift arithmetic rather than use multiple FIXED_COEF. */
 void
 thread_cal_priority (struct thread *t)
 {
@@ -384,8 +393,13 @@ thread_cal_priority (struct thread *t)
   if (t == idle_thread || !strcmp (t->name, "idle"))
     return;
   
-  /* 65536 = 4 * FIXED_COEF */
-  t->priority = PRI_MAX - t->recent_cpu / 65536 - t->nice * 2;
+  /* 2^14 = 4 * FIXED_COEF
+     Use the priority fomula given to calculate new priority. */
+  t->priority = PRI_MAX - (t->recent_cpu >> 16) - t->nice * 2;
+
+  /* Because of recent cpu and nice, new priority can be over or
+     underflow from limit. Then set priority PRI_MAX or PRI_MIN
+     properly. */
   if (t->priority > PRI_MAX)
     t->priority = PRI_MAX;
   else if (t->priority < PRI_MIN)
@@ -395,6 +409,9 @@ thread_cal_priority (struct thread *t)
   if (t->priority != priority) {
     if (!intr_context()) {
 
+      /* If this function wasn't called from interrupt, then
+         check there is a thread which has higher priority than
+         current thread. If then, yield this thread. */
       for (i = priority; i > t->priority; i--)
         if (!list_empty (&ready_list_mlfqs[i])) {
           thread_yield ();
@@ -403,12 +420,22 @@ thread_cal_priority (struct thread *t)
 
     } else {
 
+      /* If this function was called from interrupt, do proper
+         action following the thread's status. */
       if (t->status == THREAD_RUNNING)
+
+        /* If the status of the thread is running, it means there
+           can be one or more thread which has higher priority
+           than this thread. So check it, and if there is,
+           then yield it. */
         for (i = priority; i > t->priority; i--)
           if (!list_empty (&ready_list_mlfqs[i])) {
             intr_yield_on_return ();
             break;
           }
+
+      /* If the status of this thread is ready or blocked,
+         then reposition to proper place. */
       else if (t->status == THREAD_READY)
         list_push_back (&ready_list_mlfqs[t->priority], &t->elem);
       else if (t->status == THREAD_BLOCKED)
@@ -482,12 +509,12 @@ thread_set_priority (int new_priority)
   struct thread *t = thread_current ();
   struct lock_elem *le = NULL;
 
-  /* If thread holds locks, get the priority of the oldest lock.s */
+  /* If thread holds locks, get the priority of the oldest lock. */
   if (!list_empty (&t->priority_stack))
     le = list_entry (list_rbegin (&t->priority_stack), struct lock_elem, elem);
   
   /* Set priority to the origianl priority. */
-  if (le == NULL || t->priority == le->priority)
+  if (le == NULL)
     t->priority = new_priority;
   else
     le->priority = new_priority;
@@ -523,13 +550,16 @@ thread_get_nice (void)
   return thread_current ()->nice;
 }
 
+/* Calculate new load avg by the fomula given. */
 void
 thread_cal_load_avg (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
-  /* 16110 = Fixed-Point Real Number of 59/60. */
+  /* 2 * 8055 = 16110 = Fixed-Point Real Number of 59/60. */
   /* 273 = Fixed-Point Real Number of 1/60. */
-  load_avg = (((int64_t) 16110) * load_avg / FIXED_COEF)
+  /* Used shift arithmetic opration rather than use
+     multiplication. */
+  load_avg = ((((int64_t) 8055) * load_avg) >> 13)
               + (273 * ready_threads);
 }
 
@@ -537,33 +567,37 @@ thread_cal_load_avg (void)
 int
 thread_get_load_avg (void) 
 {
-  int result = load_avg * 100;
+  int result = (load_avg * 25) << 2;
   /* 8192 = FIXED_COEF / 2 */
-  return result >= 0 ? (result + 8192) / FIXED_COEF : (result - 8192) / FIXED_COEF;
+  return result >= 0 ? (result + 8192) >> 14 : (result - 8192) >> 14;
 }
 
+/* Calculate new recent cpu by the fomula given. */
 void
 thread_cal_recent_cpu (struct thread *t)
 {
   int res;
 
+  /* If current thread is idle thread, do nothing. */
   if (t == idle_thread || !strcmp (t->name, "idle"))
     return;
 
-  res = 2 * load_avg;
-  res = ((int64_t) res) * FIXED_COEF / (res + FIXED_COEF);
+  /* Used shift arithmetic operation rather than use
+     multiplication. */
+  res = load_avg << 1;
+  res = (((int64_t) res) << 14) / (res + FIXED_COEF);
 
   t->recent_cpu = ((((int64_t) res) * t->recent_cpu)
-                    / FIXED_COEF) + (t->nice * FIXED_COEF);
+                    >> 14) + (t->nice << 14);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  int recent_cpu = thread_current ()->recent_cpu * 100;
+  int recent_cpu = (thread_current ()->recent_cpu * 25) << 2;
   /* 8192 = FIXED_COEF / 2 */
-  return recent_cpu >= 0 ? (recent_cpu + 8192) / FIXED_COEF : (recent_cpu - 8192) / FIXED_COEF;
+  return recent_cpu >= 0 ? (recent_cpu + 8192) >> 14 : (recent_cpu - 8192) >> 14;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -673,7 +707,7 @@ init_thread (struct thread *t, const char *name, int priority)
          the priority is PRI_MAX. */
       t->priority = PRI_MAX;
     } else if (strcmp ("idle", name)) {
-      /* If the thread made isn't "main", set all value to
+      /* If the thread made isn't "main" and "idle", set all value to
          the value of parent. */
       cur_t = thread_current ();
       t->nice = cur_t->nice;
@@ -685,6 +719,7 @@ init_thread (struct thread *t, const char *name, int priority)
         t->priority = PRI_MIN;
 
     } else {
+      /* If the thread is idle thread, set priority PRI_MIN. */
       t->priority = PRI_MIN;
     }
 
@@ -727,6 +762,8 @@ next_thread_to_run (void)
 
   } else {
 
+    /* If use mlfqs, get the thread from the first item of ready list
+       which has a high priroity. */
     for (i=PRI_MAX; i>=PRI_MIN; i--) {
       if (!list_empty (&ready_list_mlfqs[i]))
         return list_entry (list_pop_front (&ready_list_mlfqs[i]),
