@@ -319,7 +319,8 @@ lock_try_acquire (struct lock *lock)
 }
 
 /* Get the original priority from the lock elem which has lock which
-   will be released. */
+   will be released. And the priroity should be from the lock which
+   should be released for first now. */
 static int
 get_original_priority_from_lock (struct list *list, struct lock *lock)
 {
