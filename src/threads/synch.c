@@ -232,11 +232,6 @@ priority_stack_push (struct thread *lock_holder, struct lock *lock)
 
   /* Push the original priority with the lock in the stack. */
   list_push_front (&lock_holder->priority_stack, &le->elem);
-
-  /* Push the lock which should be released for first in the stack.
-     The lock which should be released for first means this lock is
-     being acquiring by a thread which has a high priority. */
-  list_push_front (&lock_holder->release_first, &le->rl_elem);
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -327,7 +322,6 @@ get_original_priority_from_lock (struct list *list, struct lock *lock)
   int result = -1;
   struct list_elem *pos = NULL;
   struct lock_elem *entry = NULL;
-  struct thread *cur_t = thread_current ();
 
   for (pos = list_begin (list); pos != list_end (list); pos = pos->next) {
 
@@ -335,17 +329,16 @@ get_original_priority_from_lock (struct list *list, struct lock *lock)
 
     if (entry->lock == lock) {
 
-      if (&entry->rl_elem != list_begin (&cur_t->release_first)) {
+      if (&entry->elem != list_begin (list)) {
         list_entry (
-            list_begin (&cur_t->release_first), 
+            list_begin (list), 
             struct lock_elem, 
-            rl_elem)->priority
+            elem)->priority
           = entry->priority;
       } else
         result = entry->priority;
 
       list_remove (pos);
-      list_remove (&entry->rl_elem);
       free (entry);
       
       return result;

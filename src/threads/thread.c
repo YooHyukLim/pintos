@@ -692,7 +692,6 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* Initialize lock_acquired and priority_stack. */
   list_init (&t->priority_stack);
-  list_init (&t->release_first);
   t->lock_acquired = NULL;
 
   if (thread_mlfqs) {

@@ -96,12 +96,10 @@ struct thread
     struct list_elem elem;              /* List element. */
 
     /* Used for timer_sleep. */
-    struct list_elem block_elem;        /* List for element Blocked. */
     int64_t end_time;                   /* End time of sleeping. */
 
     struct list priority_stack;         /* List for original prioritys */
     struct lock *lock_acquired;         /* The Lock which this thread acquiring */
-    struct list release_first;
 
     int nice;
     int recent_cpu;

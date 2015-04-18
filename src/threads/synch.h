@@ -29,7 +29,6 @@ struct lock_elem {
   int priority;              /* Original Priority of the lock holder. */
   struct lock *lock;         /* Holder's lock */
   struct list_elem elem;     /* list elem */
-  struct list_elem rl_elem;  /* list elem of locks which holder should release. */
 };
 
 void lock_init (struct lock *);

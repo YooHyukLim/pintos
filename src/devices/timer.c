@@ -41,7 +41,7 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
-  pit_configure_channel (0, 2, TIMER_FREQ);
+  pit_configure_channel (0, 2, 30);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
@@ -116,14 +116,14 @@ timer_sleep (int64_t new_ticks)
 
   for (pos = list_begin (&sleep_list); pos != end; pos = pos->next) {
 
-    tmp = list_entry (pos, struct thread, block_elem);
+    tmp = list_entry (pos, struct thread, elem);
 
     if (end_time <= tmp->end_time)
       break;
 
   }
  
-  list_insert (pos, &cur_t->block_elem);
+  list_insert (pos, &cur_t->elem);
 
   /* Block the current thread and enable the interrupt */
   thread_block ();
@@ -224,12 +224,13 @@ timer_interrupt (struct intr_frame *args UNUSED)
   end = list_end (&sleep_list);
   for (pos = list_begin (&sleep_list); pos != end; pos = pos->next) {
     
-    tmp = list_entry (pos, struct thread, block_elem);
+    tmp = list_entry (pos, struct thread, elem);
     
     if (tmp->end_time <= ticks) {
       
+      pos = pos->prev;
+      list_remove (pos->next);
       thread_unblock (tmp);
-      list_remove (pos);
       
     } else
       break;
