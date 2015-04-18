@@ -76,6 +76,8 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static void thread_push_by_recent_cpu (struct list *, struct thread *);
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -393,9 +395,8 @@ thread_cal_priority (struct thread *t)
   if (t == idle_thread || !strcmp (t->name, "idle"))
     return;
   
-  /* 2^14 = 4 * FIXED_COEF
-     Use the priority fomula given to calculate new priority. */
-  t->priority = PRI_MAX - (t->recent_cpu >> 16) - t->nice * 2;
+  /* Use the priority fomula given to calculate new priority. */
+  t->priority = PRI_MAX - (t->recent_cpu / 65536) - t->nice * 2;
 
   /* Because of recent cpu and nice, new priority can be over or
      underflow from limit. Then set priority PRI_MAX or PRI_MIN
@@ -437,7 +438,7 @@ thread_cal_priority (struct thread *t)
       /* If the status of this thread is ready or blocked,
          then reposition to proper place. */
       else if (t->status == THREAD_READY)
-        list_push_back (&ready_list_mlfqs[t->priority], &t->elem);
+        thread_push_by_recent_cpu (&ready_list_mlfqs[t->priority], t);
       else if (t->status == THREAD_BLOCKED)
         thread_set_priority_and_repos (t, t->priority);
 
@@ -555,21 +556,19 @@ void
 thread_cal_load_avg (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
-  /* 2 * 8055 = 16110 = Fixed-Point Real Number of 59/60. */
+  /* 16110 = Fixed-Point Real Number of 59/60. */
   /* 273 = Fixed-Point Real Number of 1/60. */
   /* Used shift arithmetic opration rather than use
      multiplication. */
-  load_avg = ((((int64_t) 8055) * load_avg) >> 13)
-              + (273 * ready_threads);
+  load_avg = FIXED_MUL(16110, load_avg) + (273 * ready_threads);
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  int result = (load_avg * 25) << 2;
-  /* 8192 = FIXED_COEF / 2 */
-  return result >= 0 ? (result + 8192) >> 14 : (result - 8192) >> 14;
+  int result = load_avg * 100;
+  return NEAR_CONVERT (result);
 }
 
 /* Calculate new recent cpu by the fomula given. */
@@ -584,20 +583,18 @@ thread_cal_recent_cpu (struct thread *t)
 
   /* Used shift arithmetic operation rather than use
      multiplication. */
-  res = load_avg << 1;
-  res = (((int64_t) res) << 14) / (res + FIXED_COEF);
+  res = load_avg * 2;
+  res = FIXED_DIV (res, (res + FIXED_COEF));
 
-  t->recent_cpu = ((((int64_t) res) * t->recent_cpu)
-                    >> 14) + (t->nice << 14);
+  t->recent_cpu = FIXED_MUL(res, t->recent_cpu) + FIXED_CONVERT(t->nice);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  int recent_cpu = (thread_current ()->recent_cpu * 25) << 2;
-  /* 8192 = FIXED_COEF / 2 */
-  return recent_cpu >= 0 ? (recent_cpu + 8192) >> 14 : (recent_cpu - 8192) >> 14;
+  int recent_cpu = thread_current ()->recent_cpu * 100;
+  return NEAR_CONVERT (recent_cpu);
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -878,6 +875,31 @@ thread_push_by_priority (struct list *list, struct thread *cur_t)
   }
 
   list_insert (pos, &cur_t->elem);
+}
+
+/* Push the thread according to its recent_cpu. The lower recent_cpu means
+   the thread got lower cpu times than other threads. So let it be able to
+   get cpu time, push it in front to other. */
+static void
+thread_push_by_recent_cpu (struct list *list, struct thread *cur_t)
+{
+  struct list_elem *pos = NULL;
+  struct list_elem *str = list_head (list);
+  struct thread *t = NULL;
+  int cur_recent_cpu = cur_t->recent_cpu;
+
+  for (pos = list_rbegin (list); pos != str; pos = pos->prev) {
+
+    t = list_entry (pos, struct thread, elem);
+
+    if (cur_recent_cpu < t->recent_cpu)
+      break;
+  }
+
+  if (pos != str)
+    list_insert (pos, &cur_t->elem);
+  else
+    list_insert (pos->next, &cur_t->elem);
 }
 
 

@@ -242,19 +242,21 @@ timer_interrupt (struct intr_frame *args UNUSED)
      update priorites of all threads.*/
   if (thread_mlfqs) {
     end = list_end (&all_list);
-    thread_current ()->recent_cpu += FIXED_COEF; 
     if (ticks % TIMER_FREQ == 0) {
-    
+  
       thread_cal_load_avg ();
+
+    } else if (ticks % TIMER_FREQ == 1) {
+
       for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
         tmp = list_entry (pos, struct thread, allelem);
         thread_cal_recent_cpu (tmp);
-        thread_cal_priority (tmp); /* Because 100(TIMER_FREQ) is
-                                      multiple of 4(TIME_SLICE). */
       }
 
-    } else if (ticks % 4 == 0) {
+    } else if (ticks % 4 == 3) {
       
+      thread_current ()->recent_cpu += FIXED_COEF * 4; 
+     
       for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
         tmp = list_entry (pos, struct thread, allelem);
         thread_cal_priority (tmp);

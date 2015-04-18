@@ -230,7 +230,7 @@ priority_stack_push (struct thread *lock_holder, struct lock *lock)
   le->priority = lock_holder->priority;
   le->lock = lock;
 
-  /* Push the original priority with the lock in the stack. */
+  /* Push the original priority with the lock to the stack. */
   list_push_front (&lock_holder->priority_stack, &le->elem);
 }
 
