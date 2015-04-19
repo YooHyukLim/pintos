@@ -391,12 +391,20 @@ thread_cal_priority (struct thread *t)
 {
   int i;
   int priority = t->priority;
+  fixed recent_cpu;
 
   if (t == idle_thread || !strcmp (t->name, "idle"))
     return;
+
+  /* Arithmetic Rightshift on Recent_cpu. 2^16 = 4 * FIXED_COEF */
+  if (t->recent_cpu < 0) {
+    recent_cpu = t->recent_cpu >> 16;
+    recent_cpu |= 0xFFFF0000;
+  } else
+    recent_cpu = t->recent_cpu >> 16;
   
   /* Use the priority fomula given to calculate new priority. */
-  t->priority = PRI_MAX - (t->recent_cpu / 65536) - t->nice * 2;
+  t->priority = PRI_MAX - recent_cpu - t->nice * 2;
 
   /* Because of recent cpu and nice, new priority can be over or
      underflow from limit. Then set priority PRI_MAX or PRI_MIN
@@ -423,24 +431,14 @@ thread_cal_priority (struct thread *t)
 
       /* If this function was called from interrupt, do proper
          action following the thread's status. */
-      if (t->status == THREAD_RUNNING)
-
-        /* If the status of the thread is running, it means there
-           can be one or more thread which has higher priority
-           than this thread. So check it, and if there is,
-           then yield it. */
-        for (i = priority; i > t->priority; i--)
-          if (!list_empty (&ready_list_mlfqs[i])) {
-            intr_yield_on_return ();
-            break;
-          }
-
       /* If the status of this thread is ready or blocked,
          then reposition to proper place. */
-      else if (t->status == THREAD_READY)
+      if (t->status == THREAD_READY) {
+        list_remove (&t->elem);
         thread_push_by_recent_cpu (&ready_list_mlfqs[t->priority], t);
-      else if (t->status == THREAD_BLOCKED)
+      } else if (t->status == THREAD_BLOCKED) {
         thread_set_priority_and_repos (t, t->priority);
+      }
 
     }
   }
@@ -541,6 +539,7 @@ thread_set_nice (int nice)
   struct thread *cur_t = thread_current ();
   cur_t->nice = nice;
 
+  thread_cal_recent_cpu (cur_t);
   thread_cal_priority (cur_t);
 }
 
@@ -583,7 +582,7 @@ thread_cal_recent_cpu (struct thread *t)
 
   /* Used shift arithmetic operation rather than use
      multiplication. */
-  res = load_avg * 2;
+  res = load_avg << 1;
   res = FIXED_DIV (res, (res + FIXED_COEF));
 
   t->recent_cpu = FIXED_MUL(res, t->recent_cpu) + FIXED_CONVERT(t->nice);
@@ -673,6 +672,7 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
+  fixed recent_cpu;
   enum intr_level old_level;
   struct thread *cur_t = NULL;
 
@@ -708,7 +708,16 @@ init_thread (struct thread *t, const char *name, int priority)
       cur_t = thread_current ();
       t->nice = cur_t->nice;
       t->recent_cpu = cur_t->recent_cpu;
-      t->priority = PRI_MAX - t->recent_cpu / 65536 - t->nice * 2;
+      
+      /* Arithmetic Rightshift on Recent_cpu. 2^16 = 4 * FIXED_COEF */
+      if (t->recent_cpu < 0) {
+        recent_cpu = t->recent_cpu >> 16;
+        recent_cpu |= 0xFFFF0000;
+      } else
+        recent_cpu = t->recent_cpu >> 16;
+     
+      t->priority = PRI_MAX - recent_cpu - t->nice * 2;
+      
       if (t->priority > PRI_MAX)
         t->priority = PRI_MAX;
       else if (t->priority < PRI_MIN)
@@ -892,14 +901,11 @@ thread_push_by_recent_cpu (struct list *list, struct thread *cur_t)
 
     t = list_entry (pos, struct thread, elem);
 
-    if (cur_recent_cpu < t->recent_cpu)
+    if (cur_recent_cpu >= t->recent_cpu)
       break;
   }
 
-  if (pos != str)
-    list_insert (pos, &cur_t->elem);
-  else
-    list_insert (pos->next, &cur_t->elem);
+  list_insert (pos->next, &cur_t->elem);
 }
 
 

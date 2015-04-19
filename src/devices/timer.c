@@ -41,7 +41,7 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
-  pit_configure_channel (0, 2, 30);
+  pit_configure_channel (0, 2, 92);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
@@ -213,6 +213,8 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  int max = 0;
+  int *cur_priority = &thread_current ()->priority;
   struct thread *tmp = NULL;
   struct list_elem *pos = NULL;
   struct list_elem *end = NULL;
@@ -241,6 +243,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
      load avg and all threads' recent cpu. For each 4 ticks,
      update priorites of all threads.*/
   if (thread_mlfqs) {
+    thread_current ()->recent_cpu += FIXED_COEF;
+
     end = list_end (&all_list);
     if (ticks % TIMER_FREQ == 0) {
   
@@ -254,13 +258,18 @@ timer_interrupt (struct intr_frame *args UNUSED)
       }
 
     } else if (ticks % 4 == 3) {
-      
-      thread_current ()->recent_cpu += FIXED_COEF * 4; 
      
       for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
         tmp = list_entry (pos, struct thread, allelem);
         thread_cal_priority (tmp);
+        if (max < tmp->priority)
+          max = tmp->priority;
       }
+
+      /* max has the highest priority of ready list. So if the priority
+         of current thread is lower than max, then yield it. */
+      if (max > *cur_priority)
+        intr_yield_on_return ();
 
     }
   }
