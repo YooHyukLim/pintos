@@ -41,7 +41,7 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
-  pit_configure_channel (0, 2, 92);
+  pit_configure_channel (0, 2, 30);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
@@ -229,7 +229,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
     tmp = list_entry (pos, struct thread, elem);
     
     if (tmp->end_time <= ticks) {
-      
+     
+      tmp->end_time = 0;
       pos = pos->prev;
       list_remove (pos->next);
       thread_unblock (tmp);
@@ -243,7 +244,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
      load avg and all threads' recent cpu. For each 4 ticks,
      update priorites of all threads.*/
   if (thread_mlfqs) {
-    thread_current ()->recent_cpu += FIXED_COEF;
 
     end = list_end (&all_list);
     if (ticks % TIMER_FREQ == 0) {
@@ -258,6 +258,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
       }
 
     } else if (ticks % 4 == 3) {
+      
+      thread_current ()->recent_cpu += FIXED_COEF * 4; 
      
       for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
         tmp = list_entry (pos, struct thread, allelem);

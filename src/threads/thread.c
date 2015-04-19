@@ -436,7 +436,9 @@ thread_cal_priority (struct thread *t)
       if (t->status == THREAD_READY) {
         list_remove (&t->elem);
         thread_push_by_recent_cpu (&ready_list_mlfqs[t->priority], t);
-      } else if (t->status == THREAD_BLOCKED) {
+      } else if (t->end_time == 0 && t->status == THREAD_BLOCKED) {
+        /* Only if the thread is not sleep and status is BLOCKED,
+           reposition the thread. */
         thread_set_priority_and_repos (t, t->priority);
       }
 
@@ -559,7 +561,7 @@ thread_cal_load_avg (void)
   /* 273 = Fixed-Point Real Number of 1/60. */
   /* Used shift arithmetic opration rather than use
      multiplication. */
-  load_avg = FIXED_MUL(16110, load_avg) + (273 * ready_threads);
+  load_avg = FIXED_MUL (16110, load_avg) + (273 * ready_threads);
 }
 
 /* Returns 100 times the system load average. */
@@ -585,7 +587,7 @@ thread_cal_recent_cpu (struct thread *t)
   res = load_avg << 1;
   res = FIXED_DIV (res, (res + FIXED_COEF));
 
-  t->recent_cpu = FIXED_MUL(res, t->recent_cpu) + FIXED_CONVERT(t->nice);
+  t->recent_cpu = FIXED_MUL (res, t->recent_cpu) + FIXED_CONVERT (t->nice);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -686,6 +688,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->end_time = 0;
 
   /* Initialize lock_acquired and priority_stack. */
   list_init (&t->priority_stack);
