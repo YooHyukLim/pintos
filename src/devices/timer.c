@@ -20,6 +20,11 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
+#define CLOCK_FREQ 5000
+
+/* Last CPU clock time.  */
+static uint64_t last_cpu = 0;
+
 /* Head of the list of the sleeping threads */
 struct list sleep_list = LIST_INITIALIZER (sleep_list);
 
@@ -35,13 +40,14 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+static inline uint64_t rdtsc (void);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
 timer_init (void) 
 {
-  pit_configure_channel (0, 2, 30);
+  pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
@@ -209,16 +215,32 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
+
+static inline uint64_t
+rdtsc ()
+{
+  uint64_t ret;
+  asm volatile ("rdtsc" : "=A"(ret));
+  return ret;
+}
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   int max = 0;
   int *cur_priority = &thread_current ()->priority;
+  uint64_t cur_cpu = rdtsc ();
+  uint64_t elapsed = cur_cpu - last_cpu;
   struct thread *tmp = NULL;
   struct list_elem *pos = NULL;
   struct list_elem *end = NULL;
- 
+
+  if (CLOCK_FREQ <= elapsed)
+    last_cpu = cur_cpu;
+  else
+    return;
+
   ticks++;
   /* Check whether there is a thread which should be unblocked
      in the sleep_list. And if there is, unblock the thread and delete
@@ -245,6 +267,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
      update priorites of all threads.*/
   if (thread_mlfqs) {
 
+    thread_current ()->recent_cpu += FIXED_COEF; 
     end = list_end (&all_list);
     if (ticks % TIMER_FREQ == 0) {
   
@@ -259,8 +282,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
 
     } else if (ticks % 4 == 3) {
       
-      thread_current ()->recent_cpu += FIXED_COEF * 4; 
-     
       for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
         tmp = list_entry (pos, struct thread, allelem);
         thread_cal_priority (tmp);
