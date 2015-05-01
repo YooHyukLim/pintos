@@ -7,9 +7,6 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-
-#include "threads/malloc.h"
-#include "threads/synch.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -19,14 +16,6 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
-
-#define CLOCK_FREQ 5000
-
-/* Last CPU clock time.  */
-static uint64_t last_cpu = 0;
-
-/* Head of the list of the sleeping threads */
-struct list sleep_list = LIST_INITIALIZER (sleep_list);
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -40,7 +29,6 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
-static inline uint64_t rdtsc (void);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -99,50 +87,13 @@ timer_elapsed (int64_t then)
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t new_ticks) 
+timer_sleep (int64_t ticks) 
 {
-  /* timer_sleep will set the end time of sleeping of the thread.
-     And create a list item for saving the thread going to sleep.
-     Then the thread will be blocked until the value of timer_tick ()
-     be same to end time of the thread. */
-  if (new_ticks <= 0)
-    return;
-  enum intr_level old_level = intr_disable ();
-  int64_t end_time = ticks + new_ticks;
-  struct thread *cur_t = thread_current ();
-  struct thread *tmp = NULL;
-  struct list_elem *pos = NULL;
-  struct list_elem *end = list_end (&sleep_list);
+  int64_t start = timer_ticks ();
 
-  /* Disable the interrupt for blocking the current thread. */
-  cur_t->end_time = end_time;
-  
-  /* Add new item to sleep_list. And the list of head is sorted by ticks
-   ascendingly */
-
-  for (pos = list_begin (&sleep_list); pos != end; pos = pos->next) {
-
-    tmp = list_entry (pos, struct thread, elem);
-
-    if (end_time <= tmp->end_time)
-      break;
-
-  }
- 
-  list_insert (pos, &cur_t->elem);
-
-  /* Block the current thread and enable the interrupt */
-  thread_block ();
-  intr_set_level (old_level);
-
-//  int64_t start = timer_ticks ();
-//  int64_t elapsed;
-//
-//  ASSERT (intr_get_level () == INTR_ON);
-//  while ( (elapsed = timer_elapsed (start)) < ticks) { 
-//    printf("start: %"PRIu64"elapsed: %"PRIu64"\n", elapsed, start); 
-//    thread_yield ();
-//  }
+  ASSERT (intr_get_level () == INTR_ON);
+  while (timer_elapsed (start) < ticks) 
+    thread_yield ();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -215,88 +166,11 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
-
-static inline uint64_t
-rdtsc ()
-{
-  uint64_t ret;
-  asm volatile ("rdtsc" : "=A"(ret));
-  return ret;
-}
-
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  int max = 0;
-  int *cur_priority = &thread_current ()->priority;
-  uint64_t cur_cpu = rdtsc ();
-  uint64_t elapsed = cur_cpu - last_cpu;
-  struct thread *tmp = NULL;
-  struct list_elem *pos = NULL;
-  struct list_elem *end = NULL;
-
-  if (CLOCK_FREQ <= elapsed)
-    last_cpu = cur_cpu;
-  else
-    return;
-
   ticks++;
-  /* Check whether there is a thread which should be unblocked
-     in the sleep_list. And if there is, unblock the thread and delete
-     the list element from the list. */
-  end = list_end (&sleep_list);
-  for (pos = list_begin (&sleep_list); pos != end; pos = pos->next) {
-    
-    tmp = list_entry (pos, struct thread, elem);
-    
-    if (tmp->end_time <= ticks) {
-     
-      tmp->end_time = 0;
-      pos = pos->prev;
-      list_remove (pos->next);
-      thread_unblock (tmp);
-      
-    } else
-      break;
-  }
-  
-  /* Whenever timer interrup is called, add 1 to recent cpu of
-     current thread. And when each 1 second (TIMER_FREQ), update
-     load avg and all threads' recent cpu. For each 4 ticks,
-     update priorites of all threads.*/
-  if (thread_mlfqs) {
-
-    thread_current ()->recent_cpu += FIXED_COEF; 
-    end = list_end (&all_list);
-    if (ticks % TIMER_FREQ == 0) {
-  
-      thread_cal_load_avg ();
-
-    } else if (ticks % TIMER_FREQ == 1) {
-
-      for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
-        tmp = list_entry (pos, struct thread, allelem);
-        thread_cal_recent_cpu (tmp);
-      }
-
-    } else if (ticks % 4 == 3) {
-      
-      for (pos = list_begin (&all_list); pos != end; pos = pos->next) {
-        tmp = list_entry (pos, struct thread, allelem);
-        thread_cal_priority (tmp);
-        if (max < tmp->priority)
-          max = tmp->priority;
-      }
-
-      /* max has the highest priority of ready list. So if the priority
-         of current thread is lower than max, then yield it. */
-      if (max > *cur_priority)
-        intr_yield_on_return ();
-
-    }
-  }
-
   thread_tick ();
 }
 

@@ -4,7 +4,6 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include "threads/fixed_point.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -94,19 +93,11 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    /* Used for timer_sleep. */
-    int64_t end_time;                   /* End time of sleeping. */
-
-    struct list priority_stack;         /* List for original prioritys */
-    struct lock *lock_acquired;         /* The Lock which this thread acquiring */
-
-    fixed nice;                         /* Nice value. */
-    fixed recent_cpu;                   /* Recent cpu value. */
-
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
@@ -115,10 +106,6 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
-/* List of all processes.  Processes are added to this list
-   when they are first scheduled and removed when they exit. */
-extern struct list all_list;
 
 void thread_init (void);
 void thread_start (void);
@@ -145,17 +132,10 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-void thread_set_priority_and_repos (struct thread *, int);
-void thread_set_current_priority (int);
-void thread_cal_priority (struct thread *);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
-void thread_cal_recent_cpu (struct thread *);
 int thread_get_load_avg (void);
-void thread_cal_load_avg (void);
-
-void thread_push_by_priority (struct list *, struct thread *);
 
 #endif /* threads/thread.h */
