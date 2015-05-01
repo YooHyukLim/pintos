@@ -17,9 +17,12 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static bool load (char *cmdline, void (**eip) (void), void **esp);
+
+static int ARGV_SIZE = 5;
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -88,6 +91,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while (1) {}
   return -1;
 }
 
@@ -195,7 +199,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char *file_name, char **save_ptr);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -206,7 +210,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (char *file_name_, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -214,6 +218,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
+  char *file_name, *save_ptr;
+
+  file_name = strtok_r (file_name_, " ", &save_ptr);
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -302,7 +309,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, file_name, &save_ptr))
     goto done;
 
   /* Start address. */
@@ -427,20 +434,69 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char *file_name, char **save_ptr) 
 {
   uint8_t *kpage;
   bool success = false;
+  char **argv, *tmp;
+  int argc = 0, len;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
+  {
+    success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+    if (success)
+      *esp = PHYS_BASE;
+    else {
+      palloc_free_page (kpage);
+      return success;
     }
+  }
+
+  argv = malloc (ARGV_SIZE * sizeof(char *));
+  
+  /* Push argv to esp from the command line. */
+  tmp = file_name;
+  while (tmp) {
+    len = strlen (tmp) + 1;
+    *esp -= len;
+    argv[argc++] = *esp;
+    memcpy (*esp, tmp, len); 
+    
+    if (argc >= ARGV_SIZE) {
+      ARGV_SIZE *= 2;
+      argv = realloc (argv, ARGV_SIZE);
+    }
+
+    tmp = strtok_r (NULL, " ", save_ptr);
+  }
+  
+  /* Push padding to esp. */
+  len = (size_t) *esp % sizeof(int) + sizeof(int);
+  *esp -= len;
+  memset (*esp, 0, len);
+  
+  /* Push the address of argv to esp. */
+  for (len=argc-1; len>=0; len--) {
+    *esp -= sizeof(char *);
+    memcpy (*esp, &argv[len], sizeof(char *));
+  }
+
+  /* Push the start address of argv to esp. */
+  tmp = *esp;
+  *esp -= sizeof(char **);
+  memcpy (*esp, tmp, sizeof(char **));
+
+  /* Push argc to esp. */
+  *esp -= sizeof(int);
+  memcpy (*esp, &argc, sizeof(int));
+
+  /* Push return address to esp. */
+  *esp -= sizeof(void *);
+  memset (*esp, 0, sizeof(void *));
+
+  free (argv);
+
   return success;
 }
 
