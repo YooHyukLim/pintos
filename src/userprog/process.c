@@ -483,9 +483,9 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
   }
 
   /* Push the start address of argv to esp. */
-  tmp = *esp;
+  tmp = (char *) *esp;
   *esp -= sizeof(char **);
-  memcpy (*esp, tmp, sizeof(char **));
+  memcpy (*esp, &tmp, sizeof(char **));
 
   /* Push argc to esp. */
   *esp -= sizeof(int);
@@ -496,6 +496,7 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
   memset (*esp, 0, sizeof(void *));
 
   free (argv);
+  //hex_dump ((int) *esp, *esp, 0xC0000000-(int)*esp, true);
 
   return success;
 }
