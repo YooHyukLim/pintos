@@ -5,9 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <list.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -29,22 +31,33 @@ static int ARGV_SIZE = 5;
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *file_name_) 
 {
   char *fn_copy;
+  char *file_name, tmp[16];
   tid_t tid;
+//  struct process *p;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (fn_copy, file_name_, PGSIZE);
+  strlcpy (tmp, file_name_, 16);
+
+  file_name = strtok_r (tmp, " ", &file_name);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (fn_copy);
+ 
+//  /* Set process's pid. */
+//  p = list_entry (list_begin (&thread_current ()->child_list),
+//                  struct process,
+//                  elem);
+//  p->pid = tid;
   return tid;
 }
 
@@ -64,10 +77,12 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
-  /* If load failed, quit. */
+  /* If load failed, quit. And return -1 for value of exit. */
   palloc_free_page (file_name);
-  if (!success) 
+  if (!success) {
+    thread_current ()->process->exit_status = -1;
     thread_exit ();
+  }
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -91,8 +106,21 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while (1) {}
-  return -1;
+  int status = -1;
+  struct process *p = get_child_process (child_tid);
+
+  if (!p)
+    return -1;
+
+  /* Wait until the process's exit (the process will call sema_up
+     when it exits.) */
+  sema_down (&p->sema);
+
+  /* Set exit status and remove the process resource.  */
+  status = p->exit_status;
+  remove_child_process (p);
+
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -102,22 +130,29 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  //TODO release all resources.
+  close_by_fd (CLOSE_ALL);
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
   if (pd != NULL) 
-    {
-      /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
-      cur->pagedir = NULL;
-      pagedir_activate (NULL);
-      pagedir_destroy (pd);
-    }
+  {
+    /* Correct ordering here is crucial.  We must set
+       cur->pagedir to NULL before switching page directories,
+       so that a timer interrupt can't switch back to the
+       process page directory.  We must activate the base page
+       directory before destroying the process's page
+       directory, or our active page directory will be one
+       that's been freed (and cleared). */
+    cur->pagedir = NULL;
+    pagedir_activate (NULL);
+    pagedir_destroy (pd);
+
+    /* Sema up for notifing the parent thread which is waiting for
+       this process. And then remove this process. */
+    sema_up (&cur->process->sema);
+  }
 }
 
 /* Sets up the CPU for running user code in the current
@@ -463,9 +498,11 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
     argv[argc++] = *esp;
     memcpy (*esp, tmp, len); 
     
+    /* If the argument number is larger than what we predicted,
+       then realloc the argv array's size to double. */
     if (argc >= ARGV_SIZE) {
       ARGV_SIZE *= 2;
-      argv = realloc (argv, ARGV_SIZE);
+      argv = realloc (argv, ARGV_SIZE * sizeof(char *));
     }
 
     tmp = strtok_r (NULL, " ", save_ptr);
@@ -484,8 +521,8 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
 
   /* Push the start address of argv to esp. */
   tmp = (char *) *esp;
-  *esp -= sizeof(char **);
-  memcpy (*esp, &tmp, sizeof(char **));
+  *esp -= sizeof(char *);
+  memcpy (*esp, &tmp, sizeof(char *));
 
   /* Push argc to esp. */
   *esp -= sizeof(int);

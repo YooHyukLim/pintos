@@ -13,6 +13,7 @@
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -182,7 +183,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
-
+  
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -197,6 +198,11 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
+
+#ifdef USERPROG
+  /* Create process resource and add to child_list. */
+  t->process = add_child_process (t->tid);
+#endif
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -467,6 +473,13 @@ init_thread (struct thread *t, const char *name, int priority)
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
+
+#ifdef USERPROG
+  /* List for child processes. */
+  list_init (&t->child_list);
+
+  t->process = NULL;
+#endif
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

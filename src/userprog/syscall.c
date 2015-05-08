@@ -1,12 +1,16 @@
+#include "devices/shutdown.h"
 #include "userprog/syscall.h"
 #include "userprog/pagedir.h"
+#include "userprog/process.h"
 #include <stdio.h>
 #include <string.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "threads/sync.h"
+#include "threads/malloc.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
 
 #define MAX_ARGV 3
 #define STD_IN 0
@@ -17,11 +21,19 @@
 
 static void syscall_handler (struct intr_frame *);
 
-static bool is_user_addr (const void *addr);
-static void get_argv (int argc, int **argv, void *addr);
+static bool is_user_addr (const void *);
+static int convert_phys_page (const void *);
+static void get_argv (int, int **, void *);
 
-static void sys_exit (int status);
-static int sys_write (int fd, const void *buffer, unsigned size);
+static void sys_exit (int);
+static int sys_wait (int);
+static bool sys_create (const char *, unsigned);
+static int sys_open (const char *);
+//static bool cmp_fd (const struct list_elem *, const struct list_elem *,
+//          void *aux UNUSED);
+static int get_proper_fd (struct list *);
+static int sys_write (int, const void *, unsigned);
+static void sys_close (int);
 
 static struct lock filesys_lock;
 
@@ -35,52 +47,87 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f) 
 {
-  int sys_num = *((int *) f->esp);
   int *argv[MAX_ARGV];
 
   //thread_exit ();
   //hex_dump ((int) f->esp, f->esp, 0xC0000000-(int)f->esp,true);
-
+ 
+  /* Check whether the esp is right address. */
   if (!is_user_addr (f->esp))
     sys_exit (-1);
 
-  switch (sys_num) {
+  switch (*((int *) f->esp)) {
     /* Projects 2 and later. */
     case SYS_HALT:                   /* Halt the operating system. */
-    case SYS_EXIT:                   /* Terminate this process. */
+      shutdown_power_off ();
+      break;
 
+    case SYS_EXIT:                   /* Terminate this process. */
       get_argv (1, argv, f->esp);
       sys_exit (*argv[0]);
       break;
 
     case SYS_EXEC:                   /* Start another process. */
-    case SYS_WAIT:                   /* Wait for a child process to die. */
-    case SYS_CREATE:                 /* Create a file. */
-    case SYS_REMOVE:                 /* Delete a file. */
-    case SYS_OPEN:                   /* Open a file. */
-    case SYS_FILESIZE:               /* Obtain a file's size. */
-    case SYS_READ:                   /* Read from a file. */
-    case SYS_WRITE:                  /* Write to a file. */
+      break;
 
+    case SYS_WAIT:                   /* Wait for a child process to die. */
+      get_argv (1, argv, f->esp);
+      f->eax = sys_wait (*argv[0]);
+      break;
+
+    case SYS_CREATE:                 /* Create a file. */
+      get_argv (2, argv, f->esp);
+      *argv[0] = convert_phys_page ((const void *) *argv[0]);
+      f->eax = sys_create ((const char *) *argv[0], (unsigned) *argv[1]);
+      break;
+
+    case SYS_REMOVE:                 /* Delete a file. */
+      break;
+
+    case SYS_OPEN:                   /* Open a file. */
+      get_argv (1, argv, f->esp);
+      *argv[0] = convert_phys_page ((const void *) *argv[0]);
+      f->eax = sys_open ((const char *) *argv[0]);
+      break;
+
+    case SYS_FILESIZE:               /* Obtain a file's size. */
+      break;
+
+    case SYS_READ:                   /* Read from a file. */
+      break;
+
+    case SYS_WRITE:                  /* Write to a file. */
       get_argv (3, argv, f->esp);
+      *argv[1] = convert_phys_page ((const void *) *argv[1]);
       f->eax = sys_write (*argv[0], (const char *) *argv[1], *argv[2]);
       break;
 
     case SYS_SEEK:                   /* Change position in a file. */
+      break;
+
     case SYS_TELL:                   /* Report current position in a file. */
+      break;
+
     case SYS_CLOSE:                  /* Close a file. */
+      get_argv (1, argv, f->esp);
+      sys_close (*argv[0]);
+      break;
     
     /* Project 3 and optionally project 4. */
     case SYS_MMAP:                   /* Map a file into memory. */
     case SYS_MUNMAP:                 /* Remove a memory mapping. */
+      break;
     
     /* Project 4 only. */
     case SYS_CHDIR:                  /* Change the current directory. */
     case SYS_MKDIR:                  /* Create a directory. */
     case SYS_READDIR:                /* Reads a directory entry. */
     case SYS_ISDIR:                  /* Tests if a fd represents a directory. */
-    case SYS_INUMBER:                 /* Returns the inode number for a fd. */
-    default:
+    case SYS_INUMBER:                /* Returns the inode number for a fd. */
+      break;
+
+    default:                         /* Returns Error when system call num is wrong. */ 
+      f->eax = -1;
       break;
   }
 }
@@ -96,17 +143,39 @@ is_user_addr (const void *addr)
   return true;
 }
 
+/* Convert the user virtual address to physical address. */
+static int
+convert_phys_page (const void *addr)
+{
+  if (!is_user_addr (addr))
+    sys_exit (-1);
+
+  /* Convert the address. */
+  void *result = pagedir_get_page (thread_current ()->pagedir, addr);
+
+  /* Check whether the result is NULL. */
+  if (!result)
+    sys_exit (-1);
+
+  return (int) result;
+}
+
+
 /* Get the arguments from esp. */
 static void
 get_argv (int argc, int **argv, void *addr)
 {
-  int i;
+  int i = 0;
 
-  addr += sizeof(int);
-  for (i=0; i<argc; i++) {
-    argv[i] = (int *) addr;
+  do {
     addr += sizeof(int);
-  }
+    argv[i++] = (int *) addr;
+
+    /* Check the value of address is valid. */
+    if (!is_user_addr (addr))
+      sys_exit (-1);
+
+  } while (i < argc);
 }
 
 /* Exit the process. */
@@ -114,19 +183,197 @@ static void
 sys_exit (int status)
 {
   struct thread *cur = thread_current ();
+
+  if (cur->process != NULL)
+    cur->process->exit_status = status;
   printf("%s: exit(%d)\n", cur->name, status);
   thread_exit ();
 }
 
-/* If fd is STD_OUT, do print to console from buffer. If not, open proper file
-   and write to it. */
+/* Wait a process which has the proper pid. */
+static int
+sys_wait (int pid)
+{
+  return process_wait (pid);
+}
+
+/* Create a file. */
+static bool
+sys_create (const char *file, unsigned initial_size)
+{
+  lock_acquire (&filesys_lock);
+  bool result = filesys_create (file, initial_size);
+  lock_release (&filesys_lock);
+
+  return result;
+}
+
+/* Open the file. */
+static int
+sys_open (const char *file)
+{
+  lock_acquire (&filesys_lock);
+  int fd = -1;
+  struct file *f = filesys_open (file);
+  struct process *p = thread_current ()->process;
+  struct process_file *pf = NULL;
+
+  /* If f is NULL(filesys_open failed), then return -1. */
+  if (f != NULL && p != NULL) {
+    pf = malloc (sizeof(struct process_file));
+    
+    fd = get_proper_fd (&p->file_list);
+
+    /* Initiate the process_file's resources. And insert the
+       process_file to the process's file_list in ascending order
+       of fd. */
+    pf->fd = fd;
+    pf->file = f;
+    list_push_back (&p->file_list, &pf->elem);
+//    list_insert_ordered (&p->file_list, &pf->elem,
+//                          (list_less_func *) cmp_fd, NULL);
+  }
+
+  lock_release (&filesys_lock);
+
+  return fd;
+}
+
+//static bool
+//cmp_fd (const struct list_elem *a, const struct list_elem *b,
+//          void *aux UNUSED)
+//{
+//  struct process_file *pf_a = list_entry (a, struct process_file, elem);
+//  struct process_file *pf_b = list_entry (b, struct process_file, elem);
+//
+//  if (pf_a->fd < pf_b->fd)
+//    return true;
+//
+//  return false;
+//}
+
+/* Get a proper fd by checking the file_list in struct process. */
+static int
+get_proper_fd (struct list *file_list)
+{
+  /* The file_list will be sorted in ascending order of fd. So
+     the biggest fd can be found by getting the last element of
+     the file_list. */
+  struct list_elem *elem = list_rbegin (file_list);
+  struct process_file *pf = NULL;
+
+  /* If there is no element in list, return 3. Because, 0, 1, 2 are
+     used for stdin, stdout, stderr. */
+  if (elem == list_head (file_list))
+      return 3;
+
+  /* If there is an element in list, return its fd by adding 1. */
+  pf = list_entry (elem, struct process_file, elem);
+  return pf->fd + 1;
+}
+
+/* If fd is STD_OUT, do print to console from buffer. If not, open
+   proper file and write to it. */
 static int
 sys_write (int fd, const void *buffer, unsigned size)
 {
-   if (fd == STD_OUT) {
-     putbuf (buffer, size);
-     return size;
-   }
+  if (fd == STD_OUT) {
+    putbuf (buffer, size);
+    return size;
+  }
 
-   return size;
-} 
+  lock_acquire (&filesys_lock);
+  lock_release (&filesys_lock);
+
+  return size;
+}
+
+/* Close the file which has the fd. */
+static void
+sys_close (int fd)
+{
+  if (fd < 0)
+    return;
+  close_by_fd (fd);
+}
+
+void
+close_by_fd (int fd)
+{
+  lock_acquire (&filesys_lock);
+  struct list *file_list = &thread_current ()->process->file_list;
+  struct list_elem *elem = NULL, *tmp = NULL;
+  struct list_elem *end = list_end (file_list);
+  struct process_file *pf = NULL;
+
+  for (elem = list_begin (file_list); elem != end; elem = elem->next) {
+    pf = list_entry (elem, struct process_file, elem);
+
+    if (pf->fd == fd || fd == CLOSE_ALL) {
+      tmp = elem;
+      elem = elem->prev;
+
+      list_remove (tmp);
+      file_close (pf->file);
+      free (pf);
+
+      if (pf->fd == fd) {
+        lock_release (&filesys_lock);
+        return;
+      }
+    }
+  }
+
+  lock_release (&filesys_lock);
+}
+
+/* Create  new struct of process, and Add to list of cur thread. */
+struct process *
+add_child_process (int pid)
+{
+  struct thread *cur_t = thread_current ();
+  struct process *p = malloc (sizeof (struct process));
+
+  p->pid = pid;
+
+  /* Initiate sema for 0, and process_wait will sema_down this, and
+     process_exit will sema_up this. */
+  sema_init (&p->sema, 0);
+
+  /* Initiate the file_list which will take the information of files
+     which are opened by same processes. */
+  list_init (&p->file_list);
+
+  /* Push the child process to the list of current thread. */
+  list_push_front (&cur_t->child_list, &p->elem);
+
+  return p;
+}
+
+/* Get the child process which has a proper pid. */
+struct process *
+get_child_process (int pid)
+{
+  struct thread *cur = thread_current ();
+  struct process *p;
+  struct list_elem *elem;
+  struct list_elem *end = list_end (&cur->child_list);
+
+  for (elem = list_begin (&cur->child_list);
+       elem != end; elem = elem->next) {
+    p = list_entry (elem, struct process, elem);
+    
+    if (p->pid == pid)
+      return p;
+  }
+
+  return NULL;
+}
+
+/* Remove the child process from the list of cur thread.  */
+void
+remove_child_process (struct process *p)
+{
+  list_remove (&p->elem);
+  free (p);
+}
