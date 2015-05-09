@@ -1,4 +1,5 @@
 #include "devices/shutdown.h"
+#include "devices/input.h"
 #include "userprog/syscall.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
@@ -25,17 +26,20 @@ static bool is_user_addr (const void *);
 static int convert_phys_page (const void *);
 static void get_argv (int, int **, void *);
 
-static void sys_exit (int);
 static int sys_wait (int);
+static int sys_exec (const char *);
 static bool sys_create (const char *, unsigned);
+static bool sys_remove (const char *);
 static int sys_open (const char *);
 //static bool cmp_fd (const struct list_elem *, const struct list_elem *,
 //          void *aux UNUSED);
 static int get_proper_fd (struct list *);
+static int sys_filesize (int);
+static int sys_read (int, void *, unsigned);
 static int sys_write (int, const void *, unsigned);
+static void sys_seek (int, unsigned);
+static unsigned sys_tell (int);
 static void sys_close (int);
-
-static struct lock filesys_lock;
 
 void
 syscall_init (void) 
@@ -68,6 +72,9 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_EXEC:                   /* Start another process. */
+      get_argv (1, argv, f->esp);
+      *argv[0] = convert_phys_page ((const void *) *argv[0]);
+      f->eax = sys_exec ((const char *) *argv[0]);
       break;
 
     case SYS_WAIT:                   /* Wait for a child process to die. */
@@ -82,6 +89,9 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_REMOVE:                 /* Delete a file. */
+      get_argv (1, argv, f->esp);
+      *argv[0] = convert_phys_page ((const void *) *argv[0]);
+      f->eax = sys_remove ((const char *) *argv[0]);
       break;
 
     case SYS_OPEN:                   /* Open a file. */
@@ -91,21 +101,30 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_FILESIZE:               /* Obtain a file's size. */
+      get_argv (1, argv, f->esp);
+      f->eax = sys_filesize (*argv[0]);
       break;
 
     case SYS_READ:                   /* Read from a file. */
+      get_argv (3, argv, f->esp);
+      *argv[1] = convert_phys_page ((const void *) *argv[1]);
+      f->eax = sys_read (*argv[0], (void *) *argv[1], *argv[2]);
       break;
 
     case SYS_WRITE:                  /* Write to a file. */
       get_argv (3, argv, f->esp);
       *argv[1] = convert_phys_page ((const void *) *argv[1]);
-      f->eax = sys_write (*argv[0], (const char *) *argv[1], *argv[2]);
+      f->eax = sys_write (*argv[0], (const void *) *argv[1], *argv[2]);
       break;
 
     case SYS_SEEK:                   /* Change position in a file. */
+      get_argv (2, argv, f->esp);
+      sys_seek (*argv[0], *argv[1]);
       break;
 
     case SYS_TELL:                   /* Report current position in a file. */
+      get_argv (1, argv, f->esp);
+      f->eax = sys_tell (*argv[0]);
       break;
 
     case SYS_CLOSE:                  /* Close a file. */
@@ -179,7 +198,7 @@ get_argv (int argc, int **argv, void *addr)
 }
 
 /* Exit the process. */
-static void
+void
 sys_exit (int status)
 {
   struct thread *cur = thread_current ();
@@ -197,12 +216,43 @@ sys_wait (int pid)
   return process_wait (pid);
 }
 
+/* Execute new process. */
+static int
+sys_exec (const char *file_name)
+{
+  int pid = process_execute (file_name);
+  struct process *p = get_child_process (pid);
+
+  /* Check whether process made is NULL. */
+  if (!p)
+    return -1;
+
+  /* Wait until load finishing. And if load was failed,
+     return -1. */
+  sema_down (&p->load_sema);
+  if (!p->loaded || p->exit_status == -1)
+    return -1;
+
+  return pid;
+}
+
 /* Create a file. */
 static bool
 sys_create (const char *file, unsigned initial_size)
 {
   lock_acquire (&filesys_lock);
   bool result = filesys_create (file, initial_size);
+  lock_release (&filesys_lock);
+
+  return result;
+}
+
+/* Remove the file. */
+static bool
+sys_remove (const char *file)
+{
+  lock_acquire (&filesys_lock);
+  bool result = filesys_remove (file);
   lock_release (&filesys_lock);
 
   return result;
@@ -272,6 +322,48 @@ get_proper_fd (struct list *file_list)
   return pf->fd + 1;
 }
 
+static int
+sys_filesize (int fd)
+{
+  int size = -1;
+  lock_acquire (&filesys_lock);
+  struct file *file = get_file_by_fd (fd);
+
+  if (file != NULL)
+    size = file_length (file);
+  lock_release (&filesys_lock);
+
+  return size;
+}
+
+/* Read the file which has the fd. If fd is STDIN, read by input_getc (). */
+static int
+sys_read (int fd, void *buffer, unsigned size)
+{
+  unsigned read = -1;
+
+  if (fd == STD_IN) {
+    uint8_t *buf = (uint8_t *) buffer;
+
+    for (read=0; read<size; read++) {
+      buf[read] = input_getc ();
+    }
+
+    return read;
+  }
+
+  lock_acquire (&filesys_lock);
+  struct file *file = get_file_by_fd (fd);
+
+  if (file != NULL) {
+    read = file_read (file, buffer, size);
+  }
+
+  lock_release (&filesys_lock);
+
+  return (int) read;
+}
+
 /* If fd is STD_OUT, do print to console from buffer. If not, open
    proper file and write to it. */
 static int
@@ -283,9 +375,44 @@ sys_write (int fd, const void *buffer, unsigned size)
   }
 
   lock_acquire (&filesys_lock);
+  unsigned written = -1;
+  struct file *file = get_file_by_fd (fd);
+
+  if (file != NULL) {
+    written = file_write (file, buffer, size);
+  }
   lock_release (&filesys_lock);
 
-  return size;
+  return (int) written;
+}
+
+/* Set the position of fd. */
+static void
+sys_seek (int fd, unsigned position)
+{
+  lock_acquire (&filesys_lock);
+  struct file *file = get_file_by_fd (fd);
+  
+  if (file != NULL) {
+   file_seek (file, position);
+  }
+  lock_release (&filesys_lock);
+}
+
+/* Return the position of the file which has the fd. */
+static unsigned
+sys_tell (int fd)
+{
+  lock_acquire (&filesys_lock);
+  struct file *file = get_file_by_fd (fd);
+  unsigned pos = -1;
+
+  if (file != NULL) {
+    pos = file_tell (file);
+  }
+  lock_release (&filesys_lock);
+  
+  return pos;
 }
 
 /* Close the file which has the fd. */
@@ -297,6 +424,28 @@ sys_close (int fd)
   close_by_fd (fd);
 }
 
+/* Get the struct file which has the right fd from the file_list of
+   current thread. */
+struct file *
+get_file_by_fd (int fd)
+{
+  struct list *file_list = &thread_current ()->process->file_list;
+  struct list_elem *elem = NULL;
+  struct list_elem *end = list_end (file_list);
+  struct process_file *pf = NULL;
+
+  for (elem = list_begin (file_list); elem != end; elem = elem->next) {
+    pf = list_entry (elem, struct process_file, elem);
+
+    if (pf->fd == fd)
+      return pf->file;
+  }
+
+  return NULL;
+}
+
+/* Close the file in file_list of current thread which has the right fd.
+   If fd is CLOSE_ALL, then close all files in file_list. */
 void
 close_by_fd (int fd)
 {
@@ -327,22 +476,41 @@ close_by_fd (int fd)
   lock_release (&filesys_lock);
 }
 
-/* Create  new struct of process, and Add to list of cur thread. */
+/* Create a new process. */
 struct process *
-add_child_process (int pid)
+create_process (int pid)
 {
-  struct thread *cur_t = thread_current ();
   struct process *p = malloc (sizeof (struct process));
+
+  if (!p)
+    return NULL;
 
   p->pid = pid;
 
   /* Initiate sema for 0, and process_wait will sema_down this, and
      process_exit will sema_up this. */
   sema_init (&p->sema, 0);
-
+  
+  /* Initiate the resources related with load. */
+  p->loaded = false;
+  sema_init (&p->load_sema, 0);
+  
   /* Initiate the file_list which will take the information of files
      which are opened by same processes. */
   list_init (&p->file_list);
+
+  return p;
+}
+
+/* Create  new struct of process, and Add to list of cur thread. */
+struct process *
+add_child_process (int pid)
+{
+  struct thread *cur_t = thread_current ();
+  struct process *p = create_process (pid);
+
+  if (!p)
+    return NULL;
 
   /* Push the child process to the list of current thread. */
   list_push_front (&cur_t->child_list, &p->elem);

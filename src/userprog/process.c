@@ -68,20 +68,23 @@ start_process (void *file_name_)
 {
   char *file_name = file_name_;
   struct intr_frame if_;
-  bool success;
+  struct process *cur_p = thread_current ()->process;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  cur_p->loaded = load (file_name, &if_.eip, &if_.esp);
+  sema_up (&cur_p->load_sema);
 
-  /* If load failed, quit. And return -1 for value of exit. */
   palloc_free_page (file_name);
-  if (!success) {
-    thread_current ()->process->exit_status = -1;
-    thread_exit ();
+ 
+  /* If load failed, quit. And return -1 for value of exit. */
+  if (!cur_p->loaded) {
+    sys_exit (-1);
+//    cur_p->exit_status = -1;
+//    thread_exit ();
   }
 
   /* Start the user process by simulating a return from an
@@ -132,6 +135,11 @@ process_exit (void)
 
   //TODO release all resources.
   close_by_fd (CLOSE_ALL);
+
+  /* Allow the opened file of this thread, and close it. */
+  lock_acquire (&filesys_lock);
+  file_close (cur->opened);
+  lock_release (&filesys_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -346,15 +354,20 @@ load (char *file_name_, void (**eip) (void), void **esp)
   /* Set up stack. */
   if (!setup_stack (esp, file_name, &save_ptr))
     goto done;
+  
+  /* Save the file opened in the current thread.
+     And deny writing to it. */
+  file_deny_write (file);
+  thread_current ()->opened = file;
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
-  success = true;
+  return true;
 
  done:
-  /* We arrive here whether the load is successful or not. */
   file_close (file);
+  /* We arrive here whether the load is successful or not. */
   return success;
 }
 

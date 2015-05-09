@@ -99,6 +99,8 @@ struct thread
 
     struct process *process;            /* Process resources for Sharing. */
     struct list child_list;             /* List for child processes. */
+
+    struct file *opened;                /* Executable File Opened. */
 #endif
 
     /* Owned by thread.c. */

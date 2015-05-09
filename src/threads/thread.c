@@ -476,9 +476,10 @@ init_thread (struct thread *t, const char *name, int priority)
 
 #ifdef USERPROG
   /* List for child processes. */
-  list_init (&t->child_list);
-
+  list_init (&t->child_list); 
+  
   t->process = NULL;
+  t->opened = NULL;
 #endif
 }
 
