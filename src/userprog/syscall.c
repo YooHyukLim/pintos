@@ -60,6 +60,9 @@ syscall_handler (struct intr_frame *f)
   if (!is_user_addr (f->esp))
     sys_exit (-1);
 
+  //printf("esp: %#010x\n", (unsigned)f->esp);
+  //hex_dump ((int) f->esp, f->esp, sizeof(int),true);
+
   switch (*((int *) f->esp)) {
     /* Projects 2 and later. */
     case SYS_HALT:                   /* Halt the operating system. */
@@ -156,7 +159,8 @@ syscall_handler (struct intr_frame *f)
 static bool
 is_user_addr (const void *addr)
 {
-  if (is_kernel_vaddr (addr) || addr < USER_BOTTOM)
+  if (is_kernel_vaddr (addr) || addr < USER_BOTTOM
+      || !pagedir_get_page (thread_current ()->pagedir, addr))
     return false;
   
   return true;
