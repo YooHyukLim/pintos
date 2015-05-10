@@ -80,11 +80,11 @@ start_process (void *file_name_)
 
   palloc_free_page (file_name);
  
-  /* If load failed, quit. And return -1 for value of exit. */
+  /* If load failed, quit. */
   if (!cur_p->loaded) {
-    sys_exit (-1);
-//    cur_p->exit_status = -1;
-//    thread_exit ();
+//    sys_exit (-1);
+    cur_p->exit_status = -1;
+    thread_exit ();
   }
 
   /* Start the user process by simulating a return from an
@@ -132,14 +132,14 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
-  /* Release all opened file resources. */
-  close_by_fd (CLOSE_ALL);
-
+  
   /* Allow the opened file of this thread, and close it. */
   lock_acquire (&filesys_lock);
   file_close (cur->opened);
   lock_release (&filesys_lock);
+
+  /* Release all opened file resources. */
+  close_by_fd (CLOSE_ALL);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -273,6 +273,7 @@ load (char *file_name_, void (**eip) (void), void **esp)
 
   /* Open executable file. */
   file = filesys_open (file_name);
+
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -357,7 +358,10 @@ load (char *file_name_, void (**eip) (void), void **esp)
   
   /* Save the file opened in the current thread.
      And deny writing to it. */
+  lock_acquire (&filesys_lock);
   file_deny_write (file);
+  lock_release (&filesys_lock);
+
   thread_current ()->opened = file;
 
   /* Start address. */

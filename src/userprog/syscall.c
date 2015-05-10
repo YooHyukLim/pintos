@@ -23,7 +23,7 @@
 static void syscall_handler (struct intr_frame *);
 
 static bool is_user_addr (const void *);
-static int convert_phys_page (const void *);
+//static int convert_phys_page (const void *);
 static void get_argv (int, int **, void *);
 
 static int sys_wait (int);
@@ -76,7 +76,7 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_EXEC:                   /* Start another process. */
       get_argv (1, argv, f->esp);
-      *argv[0] = convert_phys_page ((const void *) *argv[0]);
+      //*argv[0] = convert_phys_page ((const void *) *argv[0]);
       f->eax = sys_exec ((const char *) *argv[0]);
       break;
 
@@ -87,19 +87,19 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_CREATE:                 /* Create a file. */
       get_argv (2, argv, f->esp);
-      *argv[0] = convert_phys_page ((const void *) *argv[0]);
+      //*argv[0] = convert_phys_page ((const void *) *argv[0]);
       f->eax = sys_create ((const char *) *argv[0], (unsigned) *argv[1]);
       break;
 
     case SYS_REMOVE:                 /* Delete a file. */
       get_argv (1, argv, f->esp);
-      *argv[0] = convert_phys_page ((const void *) *argv[0]);
+      //*argv[0] = convert_phys_page ((const void *) *argv[0]);
       f->eax = sys_remove ((const char *) *argv[0]);
       break;
 
     case SYS_OPEN:                   /* Open a file. */
       get_argv (1, argv, f->esp);
-      *argv[0] = convert_phys_page ((const void *) *argv[0]);
+      //*argv[0] = convert_phys_page ((const void *) *argv[0]);
       f->eax = sys_open ((const char *) *argv[0]);
       break;
 
@@ -110,13 +110,13 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_READ:                   /* Read from a file. */
       get_argv (3, argv, f->esp);
-      *argv[1] = convert_phys_page ((const void *) *argv[1]);
+      //*argv[1] = convert_phys_page ((const void *) *argv[1]);
       f->eax = sys_read (*argv[0], (void *) *argv[1], *argv[2]);
       break;
 
     case SYS_WRITE:                  /* Write to a file. */
       get_argv (3, argv, f->esp);
-      *argv[1] = convert_phys_page ((const void *) *argv[1]);
+      //*argv[1] = convert_phys_page ((const void *) *argv[1]);
       f->eax = sys_write (*argv[0], (const void *) *argv[1], *argv[2]);
       break;
 
@@ -167,21 +167,17 @@ is_user_addr (const void *addr)
 }
 
 /* Convert the user virtual address to physical address. */
-static int
-convert_phys_page (const void *addr)
-{
-  if (!is_user_addr (addr))
-    sys_exit (-1);
-
-  /* Convert the address. */
-  void *result = pagedir_get_page (thread_current ()->pagedir, addr);
-
-  /* Check whether the result is NULL. */
-  if (!result)
-    sys_exit (-1);
-
-  return (int) result;
-}
+//static int
+//convert_phys_page (const void *addr)
+//{
+//  if (!is_user_addr (addr))
+//    sys_exit (-1);
+//
+//  /* Convert the address. */
+//  void *result = pagedir_get_page (thread_current ()->pagedir, addr);
+//
+//  return (int) result;
+//}
 
 
 /* Get the arguments from esp. */
@@ -224,6 +220,9 @@ sys_wait (int pid)
 static int
 sys_exec (const char *file_name)
 {
+  if (!is_user_addr ((const void *) file_name))
+    sys_exit (-1);
+
   int pid = process_execute (file_name);
   struct process *p = get_child_process (pid);
 
@@ -244,6 +243,9 @@ sys_exec (const char *file_name)
 static bool
 sys_create (const char *file, unsigned initial_size)
 {
+  if (!is_user_addr ((const void *) file))
+    sys_exit (-1);
+
   lock_acquire (&filesys_lock);
   bool result = filesys_create (file, initial_size);
   lock_release (&filesys_lock);
@@ -255,6 +257,9 @@ sys_create (const char *file, unsigned initial_size)
 static bool
 sys_remove (const char *file)
 {
+  if (!is_user_addr ((const void *) file))
+    sys_exit (-1);
+
   lock_acquire (&filesys_lock);
   bool result = filesys_remove (file);
   lock_release (&filesys_lock);
@@ -266,6 +271,9 @@ sys_remove (const char *file)
 static int
 sys_open (const char *file)
 {
+  if (!is_user_addr ((const void *) file))
+    sys_exit (-1);
+
   lock_acquire (&filesys_lock);
   int fd = -1;
   struct file *f = filesys_open (file);
@@ -276,8 +284,10 @@ sys_open (const char *file)
   if (f != NULL && p != NULL) {
     pf = malloc (sizeof(struct process_file));
 
-    if (!pf)
+    if (!pf) {
+      lock_release (&filesys_lock);
       return fd;
+    }
     
     fd = get_proper_fd (&p->file_list);
 
@@ -322,7 +332,7 @@ get_proper_fd (struct list *file_list)
   /* If there is no element in list, return 3. Because, 0, 1, 2 are
      used for stdin, stdout, stderr. */
   if (elem == list_head (file_list))
-      return 3;
+      return 2;
 
   /* If there is an element in list, return its fd by adding 1. */
   pf = list_entry (elem, struct process_file, elem);
@@ -347,6 +357,10 @@ sys_filesize (int fd)
 static int
 sys_read (int fd, void *buffer, unsigned size)
 {
+  if (!is_user_addr ((const void *) buffer)
+      || !is_user_addr ((const void *) buffer + size))
+    sys_exit (-1);
+
   unsigned read = -1;
 
   if (fd == STD_IN) {
@@ -356,16 +370,15 @@ sys_read (int fd, void *buffer, unsigned size)
       buf[read] = input_getc ();
     }
 
-    return read;
+    return (int) read;
   }
-
+  
   lock_acquire (&filesys_lock);
   struct file *file = get_file_by_fd (fd);
 
   if (file != NULL) {
     read = file_read (file, buffer, size);
   }
-
   lock_release (&filesys_lock);
 
   return (int) read;
@@ -376,6 +389,10 @@ sys_read (int fd, void *buffer, unsigned size)
 static int
 sys_write (int fd, const void *buffer, unsigned size)
 {
+  if (!is_user_addr ((const void *) buffer)
+      || !is_user_addr ((const void *) buffer + size))
+    sys_exit (-1);
+
   if (fd == STD_OUT) {
     putbuf (buffer, size);
     return size;
