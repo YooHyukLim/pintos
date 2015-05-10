@@ -101,6 +101,8 @@ struct thread
     struct list child_list;             /* List for child processes. */
 
     struct file *opened;                /* Executable File Opened. */
+
+    struct thread *parent;              /* The thread information of parent. */
 #endif
 
     /* Owned by thread.c. */

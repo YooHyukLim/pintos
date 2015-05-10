@@ -202,6 +202,9 @@ thread_create (const char *name, int priority,
 #ifdef USERPROG
   /* Create process resource and add to child_list. */
   t->process = add_child_process (t->tid);
+
+  /* Parent thread. */
+  t->parent = thread_current ();
 #endif
 
   /* Add to run queue. */

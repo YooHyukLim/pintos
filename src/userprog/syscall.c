@@ -275,6 +275,9 @@ sys_open (const char *file)
   /* If f is NULL(filesys_open failed), then return -1. */
   if (f != NULL && p != NULL) {
     pf = malloc (sizeof(struct process_file));
+
+    if (!pf)
+      return fd;
     
     fd = get_proper_fd (&p->file_list);
 

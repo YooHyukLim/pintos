@@ -133,7 +133,7 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
-  //TODO release all resources.
+  /* Release all opened file resources. */
   close_by_fd (CLOSE_ALL);
 
   /* Allow the opened file of this thread, and close it. */
@@ -490,8 +490,7 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
   int argc = 0, len;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
-  {
+  if (kpage != NULL) {
     success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
     if (success)
       *esp = PHYS_BASE;
@@ -499,9 +498,16 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
       palloc_free_page (kpage);
       return success;
     }
+  } else {
+    return success;
   }
 
   argv = malloc (ARGV_SIZE * sizeof(char *));
+
+  if (!argv) {
+    palloc_free_page (kpage);
+    return success;
+  }
   
   /* Push argv to esp from the command line. */
   tmp = file_name;
@@ -516,6 +522,11 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
     if (argc >= ARGV_SIZE) {
       ARGV_SIZE *= 2;
       argv = realloc (argv, ARGV_SIZE * sizeof(char *));
+      
+      if (!argv) {
+        palloc_free_page (kpage);
+        return success;
+      }
     }
 
     tmp = strtok_r (NULL, " ", save_ptr);
