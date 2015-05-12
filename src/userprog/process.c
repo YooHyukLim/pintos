@@ -36,7 +36,6 @@ process_execute (const char *file_name_)
   char *fn_copy;
   char *file_name, tmp[16];
   tid_t tid;
-//  struct process *p;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -53,11 +52,6 @@ process_execute (const char *file_name_)
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
  
-//  /* Set process's pid. */
-//  p = list_entry (list_begin (&thread_current ()->child_list),
-//                  struct process,
-//                  elem);
-//  p->pid = tid;
   return tid;
 }
 
@@ -82,7 +76,6 @@ start_process (void *file_name_)
  
   /* If load failed, quit. */
   if (!cur_p->loaded) {
-//    sys_exit (-1);
     cur_p->exit_status = -1;
     thread_exit ();
   }
@@ -242,7 +235,8 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp, char *file_name, char **save_ptr);
+static bool args_parsing (void **, char *, char **);
+static bool setup_stack (void **);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -353,7 +347,11 @@ load (char *file_name_, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, file_name, &save_ptr))
+  if (!setup_stack (esp))
+    goto done;
+
+  /* Parse the arguments. */
+  if (!args_parsing (esp, file_name, &save_ptr))
     goto done;
   
   /* Save the file opened in the current thread.
@@ -486,12 +484,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, char *file_name, char **save_ptr) 
+setup_stack (void **esp) 
 {
   uint8_t *kpage;
   bool success = false;
-  char **argv, *tmp;
-  int argc = 0, len;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
@@ -502,17 +498,23 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
       palloc_free_page (kpage);
       return success;
     }
-  } else {
-    return success;
   }
+
+  return success;
+}
+
+/* Parse the arguments from the command line, and put them to esp. */
+static bool
+args_parsing (void **esp, char *file_name, char **save_ptr)
+{
+  char **argv, *tmp;
+  int argc = 0, len;
 
   argv = malloc (ARGV_SIZE * sizeof(char *));
 
-  if (!argv) {
-    palloc_free_page (kpage);
-    return success;
-  }
-  
+  if (!argv)
+    return false;
+
   /* Push argv to esp from the command line. */
   tmp = file_name;
   while (tmp) {
@@ -528,8 +530,7 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
       argv = realloc (argv, ARGV_SIZE * sizeof(char *));
       
       if (!argv) {
-        palloc_free_page (kpage);
-        return success;
+        return false;
       }
     }
 
@@ -563,7 +564,7 @@ setup_stack (void **esp, char *file_name, char **save_ptr)
   free (argv);
   //hex_dump ((int) *esp, *esp, 0xC0000000-(int)*esp, true);
 
-  return success;
+  return true;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

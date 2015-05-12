@@ -25,7 +25,6 @@ static void syscall_handler (struct intr_frame *);
 static void is_user_addr (const void *);
 static void is_readable_addr (const char *, unsigned);
 static void is_writable_addr (uint8_t *, unsigned );
-//static int convert_phys_page (const void *);
 static void get_argv (int, int **, void *);
 
 static int sys_wait (int);
@@ -33,8 +32,6 @@ static int sys_exec (const char *);
 static bool sys_create (const char *, unsigned);
 static bool sys_remove (const char *);
 static int sys_open (const char *);
-//static bool cmp_fd (const struct list_elem *, const struct list_elem *,
-//          void *aux UNUSED);
 static int get_proper_fd (struct list *);
 static int sys_filesize (int);
 static int sys_read (int, void *, unsigned);
@@ -148,8 +145,6 @@ syscall_handler (struct intr_frame *f)
 static void
 is_user_addr (const void *addr)
 {
-//  if (is_kernel_vaddr (addr) || addr < USER_BOTTOM
-//      || !pagedir_get_page (thread_current ()->pagedir, addr))
   if (is_kernel_vaddr (addr)
       || get_user ((const uint8_t *) addr) == -1)
     sys_exit (-1);
@@ -173,20 +168,6 @@ is_writable_addr (uint8_t *udst, unsigned bytes)
   if (is_kernel_vaddr (udst+bytes-1) || !put_user (udst+bytes-1, 0))
     sys_exit (-1);
 }
-
-/* Convert the user virtual address to physical address. */
-//static int
-//convert_phys_page (const void *addr)
-//{
-//  if (!is_user_addr (addr))
-//    sys_exit (-1);
-//
-//  /* Convert the address. */
-//  void *result = pagedir_get_page (thread_current ()->pagedir, addr);
-//
-//  return (int) result;
-//}
-
 
 /* Get the arguments from esp. */
 static void
@@ -300,27 +281,12 @@ sys_open (const char *file)
     pf->fd = fd;
     pf->file = f;
     list_push_back (&p->file_list, &pf->elem);
-//    list_insert_ordered (&p->file_list, &pf->elem,
-//                          (list_less_func *) cmp_fd, NULL);
   }
 
   lock_release (&filesys_lock);
 
   return fd;
 }
-
-//static bool
-//cmp_fd (const struct list_elem *a, const struct list_elem *b,
-//          void *aux UNUSED)
-//{
-//  struct process_file *pf_a = list_entry (a, struct process_file, elem);
-//  struct process_file *pf_b = list_entry (b, struct process_file, elem);
-//
-//  if (pf_a->fd < pf_b->fd)
-//    return true;
-//
-//  return false;
-//}
 
 /* Get a proper fd by checking the file_list in struct process. */
 static int
@@ -342,6 +308,7 @@ get_proper_fd (struct list *file_list)
   return pf->fd + 1;
 }
 
+/* Get the filesize. */
 static int
 sys_filesize (int fd)
 {
