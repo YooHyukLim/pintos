@@ -38,5 +38,7 @@ struct process * create_process (int);
 struct process * add_child_process (int);
 struct process * get_child_process (int);
 void remove_child_process (struct process *);
+int get_user (const uint8_t *uaddr);
+bool put_user (uint8_t *udst, uint8_t byte);
 
 #endif /* userprog/syscall.h */

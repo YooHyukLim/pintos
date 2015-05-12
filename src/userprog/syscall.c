@@ -22,7 +22,9 @@
 
 static void syscall_handler (struct intr_frame *);
 
-static bool is_user_addr (const void *);
+static void is_user_addr (const void *);
+static void is_readable_addr (const char *, unsigned);
+static void is_writable_addr (uint8_t *, unsigned );
 //static int convert_phys_page (const void *);
 static void get_argv (int, int **, void *);
 
@@ -53,15 +55,8 @@ syscall_handler (struct intr_frame *f)
 {
   int *argv[MAX_ARGV];
 
-  //thread_exit ();
-  //hex_dump ((int) f->esp, f->esp, 0xC0000000-(int)f->esp,true);
- 
   /* Check whether the esp is right address. */
-  if (!is_user_addr (f->esp))
-    sys_exit (-1);
-
-  //printf("esp: %#010x\n", (unsigned)f->esp);
-  //hex_dump ((int) f->esp, f->esp, sizeof(int),true);
+  is_user_addr (f->esp);
 
   switch (*((int *) f->esp)) {
     /* Projects 2 and later. */
@@ -76,7 +71,6 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_EXEC:                   /* Start another process. */
       get_argv (1, argv, f->esp);
-      //*argv[0] = convert_phys_page ((const void *) *argv[0]);
       f->eax = sys_exec ((const char *) *argv[0]);
       break;
 
@@ -87,19 +81,16 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_CREATE:                 /* Create a file. */
       get_argv (2, argv, f->esp);
-      //*argv[0] = convert_phys_page ((const void *) *argv[0]);
       f->eax = sys_create ((const char *) *argv[0], (unsigned) *argv[1]);
       break;
 
     case SYS_REMOVE:                 /* Delete a file. */
       get_argv (1, argv, f->esp);
-      //*argv[0] = convert_phys_page ((const void *) *argv[0]);
       f->eax = sys_remove ((const char *) *argv[0]);
       break;
 
     case SYS_OPEN:                   /* Open a file. */
       get_argv (1, argv, f->esp);
-      //*argv[0] = convert_phys_page ((const void *) *argv[0]);
       f->eax = sys_open ((const char *) *argv[0]);
       break;
 
@@ -110,13 +101,11 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_READ:                   /* Read from a file. */
       get_argv (3, argv, f->esp);
-      //*argv[1] = convert_phys_page ((const void *) *argv[1]);
       f->eax = sys_read (*argv[0], (void *) *argv[1], *argv[2]);
       break;
 
     case SYS_WRITE:                  /* Write to a file. */
       get_argv (3, argv, f->esp);
-      //*argv[1] = convert_phys_page ((const void *) *argv[1]);
       f->eax = sys_write (*argv[0], (const void *) *argv[1], *argv[2]);
       break;
 
@@ -156,14 +145,33 @@ syscall_handler (struct intr_frame *f)
 
 /* Check whether the address is valid. The address shouldn't be kernel vaddr
    and should be bigger than USER_BOTTM. */
-static bool
+static void
 is_user_addr (const void *addr)
 {
-  if (is_kernel_vaddr (addr) || addr < USER_BOTTOM
-      || !pagedir_get_page (thread_current ()->pagedir, addr))
-    return false;
-  
-  return true;
+//  if (is_kernel_vaddr (addr) || addr < USER_BOTTOM
+//      || !pagedir_get_page (thread_current ()->pagedir, addr))
+  if (is_kernel_vaddr (addr)
+      || get_user ((const uint8_t *) addr) == -1)
+    sys_exit (-1);
+}
+
+/* Chech whether the given buffers are valid to be read. */
+static void
+is_readable_addr (const char *addr, unsigned bytes)
+{
+  is_user_addr ((const void *) addr);
+  is_user_addr ((const void *) addr+bytes-1);
+}
+
+/* Check whether the given buffers are valid to be written. */
+static void
+is_writable_addr (uint8_t *udst, unsigned bytes)
+{
+  if (is_kernel_vaddr (udst) || !put_user (udst, 0))
+    sys_exit (-1);
+
+  if (is_kernel_vaddr (udst+bytes-1) || !put_user (udst+bytes-1, 0))
+    sys_exit (-1);
 }
 
 /* Convert the user virtual address to physical address. */
@@ -191,8 +199,7 @@ get_argv (int argc, int **argv, void *addr)
     argv[i++] = (int *) addr;
 
     /* Check the value of address is valid. */
-    if (!is_user_addr (addr))
-      sys_exit (-1);
+    is_user_addr (addr);
 
   } while (i < argc);
 }
@@ -220,8 +227,7 @@ sys_wait (int pid)
 static int
 sys_exec (const char *file_name)
 {
-  if (!is_user_addr ((const void *) file_name))
-    sys_exit (-1);
+  is_user_addr ((const void *) file_name);
 
   int pid = process_execute (file_name);
   struct process *p = get_child_process (pid);
@@ -243,8 +249,7 @@ sys_exec (const char *file_name)
 static bool
 sys_create (const char *file, unsigned initial_size)
 {
-  if (!is_user_addr ((const void *) file))
-    sys_exit (-1);
+  is_user_addr ((const void *) file);
 
   lock_acquire (&filesys_lock);
   bool result = filesys_create (file, initial_size);
@@ -257,8 +262,7 @@ sys_create (const char *file, unsigned initial_size)
 static bool
 sys_remove (const char *file)
 {
-  if (!is_user_addr ((const void *) file))
-    sys_exit (-1);
+  is_user_addr ((const void *) file);
 
   lock_acquire (&filesys_lock);
   bool result = filesys_remove (file);
@@ -271,8 +275,7 @@ sys_remove (const char *file)
 static int
 sys_open (const char *file)
 {
-  if (!is_user_addr ((const void *) file))
-    sys_exit (-1);
+  is_user_addr ((const void *) file);
 
   lock_acquire (&filesys_lock);
   int fd = -1;
@@ -357,9 +360,10 @@ sys_filesize (int fd)
 static int
 sys_read (int fd, void *buffer, unsigned size)
 {
-  if (!is_user_addr ((const void *) buffer)
-      || !is_user_addr ((const void *) buffer + size))
-    sys_exit (-1);
+  if (size == 0)
+    return 0;
+
+  is_writable_addr ((uint8_t *) buffer, size);
 
   unsigned read = -1;
 
@@ -371,6 +375,8 @@ sys_read (int fd, void *buffer, unsigned size)
     }
 
     return (int) read;
+  } else if (fd == STD_OUT) {
+    return -1;
   }
   
   lock_acquire (&filesys_lock);
@@ -389,9 +395,10 @@ sys_read (int fd, void *buffer, unsigned size)
 static int
 sys_write (int fd, const void *buffer, unsigned size)
 {
-  if (!is_user_addr ((const void *) buffer)
-      || !is_user_addr ((const void *) buffer + size))
-    sys_exit (-1);
+  if (size == 0)
+    return 0;
+
+  is_readable_addr ((const char *) buffer, size);
 
   if (fd == STD_OUT) {
     putbuf (buffer, size);
@@ -568,4 +575,29 @@ remove_child_process (struct process *p)
 {
   list_remove (&p->elem);
   free (p);
+}
+
+/* Reads a byte at user virtual address UADDR.
+   UADDR must be below PHYS_BASE.
+   Returns the byte value if successful, -1 if a segfault
+   occurred. */
+int
+get_user (const uint8_t *uaddr)
+{
+  int result;
+  asm ("movl $1f, %0; movzbl %1, %0; 1:"
+       : "=&a" (result) : "m" (*uaddr));
+  return result;
+}
+ 
+/* Writes BYTE to user address UDST.
+   UDST must be below PHYS_BASE.
+   Returns true if successful, false if a segfault occurred. */
+bool
+put_user (uint8_t *udst, uint8_t byte)
+{
+  int error_code;
+  asm ("movl $1f, %0; movb %b2, %1; 1:"
+       : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+  return error_code != -1;
 }
