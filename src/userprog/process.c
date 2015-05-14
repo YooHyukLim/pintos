@@ -171,6 +171,77 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
+
+/* Create a new process. */
+struct process *
+create_process (int pid)
+{
+  struct process *p = malloc (sizeof (struct process));
+
+  if (!p)
+    return NULL;
+
+  p->pid = pid;
+
+  /* Initiate sema for 0, and process_wait will sema_down this, and
+     process_exit will sema_up this. */
+  sema_init (&p->sema, 0);
+  
+  /* Initiate the resources related with load. */
+  p->loaded = false;
+  sema_init (&p->load_sema, 0);
+  
+  /* Initiate the file_list which will take the information of files
+     which are opened by same processes. */
+  list_init (&p->file_list);
+
+  return p;
+}
+
+/* Create  new struct of process, and Add to list of cur thread. */
+struct process *
+add_child_process (int pid)
+{
+  struct thread *cur_t = thread_current ();
+  struct process *p = create_process (pid);
+
+  if (!p)
+    return NULL;
+
+  /* Push the child process to the list of current thread. */
+  list_push_front (&cur_t->child_list, &p->elem);
+
+  return p;
+}
+
+/* Get the child process which has a proper pid. */
+struct process *
+get_child_process (int pid)
+{
+  struct thread *cur = thread_current ();
+  struct process *p;
+  struct list_elem *elem;
+  struct list_elem *end = list_end (&cur->child_list);
+
+  for (elem = list_begin (&cur->child_list);
+       elem != end; elem = elem->next) {
+    p = list_entry (elem, struct process, elem);
+    
+    if (p->pid == pid)
+      return p;
+  }
+
+  return NULL;
+}
+
+/* Remove the child process from the list of cur thread.  */
+void
+remove_child_process (struct process *p)
+{
+  list_remove (&p->elem);
+  free (p);
+}
+
 
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
