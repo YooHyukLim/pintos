@@ -157,10 +157,10 @@ process_exit (void)
     /* Sema up for notifing the parent thread which is waiting for
        this process. And then remove this process. But if the parent
        already exited, then only free the process resources. */
-    if (!cur->parent)
-      free (cur->process);
-    else
+    if (cur->parent != NULL)
       sema_up (&cur->process->sema);
+    else
+      free (cur->process);
   }
 }
 
