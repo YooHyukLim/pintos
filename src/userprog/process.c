@@ -25,6 +25,7 @@ static thread_func start_process NO_RETURN;
 static bool load (char *cmdline, void (**eip) (void), void **esp);
 
 static int ARGV_SIZE = 5;
+#define ARGV_MAX 50
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -134,6 +135,9 @@ process_exit (void)
   /* Release all opened file resources. */
   close_by_fd (CLOSE_ALL);
 
+  /* Free the resource of child processes exited already. */
+  free_child_process ();
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -151,8 +155,12 @@ process_exit (void)
     pagedir_destroy (pd);
 
     /* Sema up for notifing the parent thread which is waiting for
-       this process. And then remove this process. */
-    sema_up (&cur->process->sema);
+       this process. And then remove this process. But if the parent
+       already exited, then only free the process resources. */
+    if (!cur->parent)
+      free (cur->process);
+    else
+      sema_up (&cur->process->sema);
   }
 }
 
@@ -238,8 +246,30 @@ get_child_process (int pid)
 void
 remove_child_process (struct process *p)
 {
-  list_remove (&p->elem);
-  free (p);
+  if (p != NULL) {
+    list_remove (&p->elem);
+    free (p);
+  }
+}
+
+/* Free the resources of child processes exited already. */
+void
+free_child_process ()
+{
+  struct thread *cur = thread_current ();
+  struct process *p;
+  struct list_elem *elem;
+  struct list_elem *end = list_end (&cur->child_list);
+
+  for (elem = list_begin (&cur->child_list);
+       elem != end; elem = elem->next) {
+    p = list_entry (elem, struct process, elem);
+
+    if (sema_try_down (&p->sema)) {
+      elem = elem->prev;
+      remove_child_process (p);
+    }
+  }
 }
 
 
@@ -597,6 +627,11 @@ args_parsing (void **esp, char *file_name, char **save_ptr)
     /* If the argument number is larger than what we predicted,
        then realloc the argv array's size to double. */
     if (argc >= ARGV_SIZE) {
+      if (argc >= ARGV_MAX) {
+        free (argv);
+        return false;
+      }
+
       ARGV_SIZE *= 2;
       argv = realloc (argv, ARGV_SIZE * sizeof(char *));
       

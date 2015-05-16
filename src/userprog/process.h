@@ -36,5 +36,6 @@ struct process * create_process (int);
 struct process * add_child_process (int);
 struct process * get_child_process (int);
 void remove_child_process (struct process *);
+void free_child_process (void);
 
 #endif /* userprog/process.h */

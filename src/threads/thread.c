@@ -200,6 +200,7 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
 #ifdef USERPROG
+  t->parent = thread_current ();
   /* Create process resource and add to child_list. */
   t->process = add_child_process (t->tid);
 #endif

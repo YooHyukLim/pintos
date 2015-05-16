@@ -16,7 +16,6 @@
 #define MAX_ARGV 3
 #define STD_IN 0
 #define STD_OUT 1
-#define STD_ERR 2
 
 #define USER_BOTTOM (void *)0x08048000
 
@@ -370,6 +369,8 @@ sys_write (int fd, const void *buffer, unsigned size)
   if (fd == STD_OUT) {
     putbuf (buffer, size);
     return size;
+  } else if (fd == STD_IN) {
+    return -1;
   }
 
   lock_acquire (&filesys_lock);
