@@ -257,9 +257,10 @@ sys_open (const char *file)
 {
   is_user_addr ((const void *) file);
 
-  lock_acquire (&filesys_lock);
   int fd = -1;
+  lock_acquire (&filesys_lock);
   struct file *f = filesys_open (file);
+  lock_release (&filesys_lock);
   struct process *p = thread_current ()->process;
   struct process_file *pf = NULL;
 
@@ -268,7 +269,6 @@ sys_open (const char *file)
     pf = malloc (sizeof(struct process_file));
 
     if (!pf) {
-      lock_release (&filesys_lock);
       return fd;
     }
     
@@ -281,8 +281,6 @@ sys_open (const char *file)
     pf->file = f;
     list_push_back (&p->file_list, &pf->elem);
   }
-
-  lock_release (&filesys_lock);
 
   return fd;
 }
@@ -345,13 +343,13 @@ sys_read (int fd, void *buffer, unsigned size)
     return -1;
   }
   
-  lock_acquire (&filesys_lock);
   struct file *file = get_file_by_fd (fd);
 
   if (file != NULL) {
+    lock_acquire (&filesys_lock);
     read = file_read (file, buffer, size);
+    lock_release (&filesys_lock);
   }
-  lock_release (&filesys_lock);
 
   return (int) read;
 }
@@ -373,14 +371,14 @@ sys_write (int fd, const void *buffer, unsigned size)
     return -1;
   }
 
-  lock_acquire (&filesys_lock);
   unsigned written = -1;
   struct file *file = get_file_by_fd (fd);
 
   if (file != NULL) {
+    lock_acquire (&filesys_lock);
     written = file_write (file, buffer, size);
+    lock_release (&filesys_lock);
   }
-  lock_release (&filesys_lock);
 
   return (int) written;
 }

@@ -381,7 +381,9 @@ load (char *file_name_, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire (&filesys_lock);
   file = filesys_open (file_name);
+  lock_release (&filesys_lock);
 
   if (file == NULL) 
     {
