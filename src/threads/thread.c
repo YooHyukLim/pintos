@@ -15,7 +15,6 @@
 #include "userprog/process.h"
 #include "userprog/syscall.h"
 #endif
-#include "vm/frame.h"
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -94,9 +93,6 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
-
-  lock_init (&frame_lock);
-  list_init (&frame_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();

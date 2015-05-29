@@ -62,9 +62,7 @@ page_get_spte (void *upage)
   if (!elem)
     return NULL;
     
-  return hash_entry (hash_find (&thread_current ()->spt, &spte.elem),
-                     struct spte,
-                     elem);
+  return hash_entry (elem, struct spte, elem);
 }
 
 /* Add the page which has to be loaded to
@@ -85,6 +83,7 @@ page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
   spte->read_bytes = read_bytes;
   spte->zero_bytes = zero_bytes;
   spte->writable = writable;
+  spte->swap_slot = -1;
 
   if (hash_insert (&thread_current ()->spt, &spte->elem) != NULL) {
     free (spte);
@@ -104,7 +103,7 @@ page_load_from_spt (void *upage)
   if (!spte)
     return false;
 
-  void *frame = frame_alloc (spte, PAL_USER);
+  void *frame = frame_alloc (PAL_USER);
   struct thread *t = thread_current ();
   
   if (!frame)

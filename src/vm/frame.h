@@ -5,6 +5,7 @@
 #include <inttypes.h>
 #include "threads/thread.h"
 #include "threads/synch.h"
+#include "threads/palloc.h"
 #include "vm/page.h"
 
 struct list frame_list; /* Frame Table */
@@ -14,13 +15,13 @@ struct lock frame_lock; /* Lock for frame table */
 struct frame_elem
 {
   struct list_elem elem;
-  struct spte *spte;
   struct thread *thread;
 
   void *frame;
 };
 
-void * frame_alloc (struct spte *, enum palloc_flags);
+void frame_init (void);
+void * frame_alloc (enum palloc_flags);
 void frame_dealloc (void *);
 
 #endif /* vm/frame.h */

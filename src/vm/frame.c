@@ -1,10 +1,17 @@
-#include "threads/palloc.h"
 #include "threads/malloc.h"
 #include "vm/frame.h"
 
+/* Initialize the elements for frame. */
+void
+frame_init (void)
+{
+  lock_init (&frame_lock);
+  list_init (&frame_list);
+}
+
 /* Allocate a frame for upage and add it to frame table(list). */
 void *
-frame_alloc (struct spte *spte, enum palloc_flags flag)
+frame_alloc (enum palloc_flags flag)
 {
   void *frame = palloc_get_page (flag);
 
@@ -17,7 +24,6 @@ frame_alloc (struct spte *spte, enum palloc_flags flag)
 
     fe->frame = frame;
     fe->thread = thread_current ();
-    fe->spte = spte;
 
     lock_acquire (&frame_lock);
     list_push_back (&frame_list, &fe->elem);

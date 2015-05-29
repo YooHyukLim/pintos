@@ -38,6 +38,11 @@
 #include "filesys/fsutil.h"
 #endif
 
+#ifdef VM
+#include "vm/frame.h"
+#include "vm/swap.h"
+#endif
+
 /* Page directory with kernel mappings only. */
 uint32_t *init_page_dir;
 
@@ -127,10 +132,19 @@ main (void)
   filesys_init (format_filesys);
 #endif
 
+  /* Initialize Frame. */
+  frame_init ();
+
+  /* Initialize Swap. */
+  swap_init ();
+
   printf ("Boot complete.\n");
   
   /* Run actions specified on kernel command line. */
   run_actions (argv);
+
+  /* Destory all elements of swap. */
+  swap_destroy ();
 
   /* Finish up. */
   shutdown ();

@@ -17,6 +17,8 @@ struct spte
   uint32_t read_bytes;
   uint32_t zero_bytes;
   bool writable;
+
+  size_t swap_slot;
 };
 
 unsigned page_hash_func (const struct hash_elem *, void *);
