@@ -106,6 +106,7 @@ struct thread
 #endif
 
     struct hash spt;                    /* Hash About a Supplement Page Table. */
+    uint8_t *user_stack;                /* Stack pointer's value. */
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

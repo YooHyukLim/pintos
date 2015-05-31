@@ -353,13 +353,13 @@ intr_handler (struct intr_frame *frame)
      An external interrupt handler cannot sleep. */
   external = frame->vec_no >= 0x20 && frame->vec_no < 0x30;
   if (external) 
-    {
-      ASSERT (intr_get_level () == INTR_OFF);
-      ASSERT (!intr_context ());
+  {
+    ASSERT (intr_get_level () == INTR_OFF);
+    ASSERT (!intr_context ());
 
-      in_external_intr = true;
-      yield_on_return = false;
-    }
+    in_external_intr = true;
+    yield_on_return = false;
+  }
 
   /* Invoke the interrupt's handler. */
   handler = intr_handlers[frame->vec_no];

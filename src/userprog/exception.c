@@ -157,12 +157,15 @@ page_fault (struct intr_frame *f)
 //  write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  if (user) {
+    thread_current ()->user_stack = f->esp;
+  }
+
   /* If there is the page in the supplement page table,
      then load it to frame table. */
   if (not_present && (user || is_user_vaddr ((const void *) fault_addr))
       && page_load_from_spt (fault_addr))
       return;
- 
   f->eip = (void *) f->eax;
   f->eax = 0xffffffff;
 

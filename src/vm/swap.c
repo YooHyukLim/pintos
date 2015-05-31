@@ -3,6 +3,7 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 #include "vm/frame.h"
 #include "vm/swap.h"
 
@@ -75,10 +76,12 @@ swap_out (struct spte *spte, void *frame)
      to the value * SWAP_CNT. */
   spte->swap_slot = bm_index * SWAP_CNT;
 
+  lock_acquire (&filesys_lock);
   /* Write the data of the frame to the swap slot. */
   for (i = 0; i < SWAP_CNT; i++)
     block_write (swap_block, spte->swap_slot + i,
                  frame + i * BLOCK_SECTOR_SIZE);
+  lock_release (&filesys_lock);
 
   return true;
 }
@@ -91,16 +94,6 @@ swap_in (struct spte *spte, void *frame)
   ASSERT (spte->swap_slot != (block_sector_t) -1);
   
   size_t bm_index = spte->swap_slot / SWAP_CNT;
-  
-  /* Check whether the swap slot number of spte is valid or not. */
-//  lock_acquire (&swap_lock);
-//  if (bitmap_test (swap_bitmap, bm_index) == USED)
-//    bitmap_flip (swap_bitmap, bm_index);
-//  else {
-//    lock_release (&swap_lock);
-//    PANIC ("Wrong Bitmap index.");
-//  }
-
   size_t i;
 
   /* Read the data from swap slot to the frame. */

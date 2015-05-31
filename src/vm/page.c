@@ -73,7 +73,7 @@ page_get_spte (void *upage)
 
 /* Add the page which has to be loaded to
    the supplement page table entry. */
-bool
+struct spte *
 page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
                  uint32_t read_bytes, uint32_t zero_bytes,
                  bool writable)
@@ -81,7 +81,7 @@ page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
   struct spte *spte = (struct spte *) malloc (sizeof (struct spte));
   
   if (!spte)
-    return false;
+    return NULL;
 
   spte->file = file;
   spte->ofs = ofs;
@@ -95,10 +95,10 @@ page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
 
   if (hash_insert (&thread_current ()->spt, &spte->elem) != NULL) {
     free (spte);
-    return false;
+    return NULL;
   }
 
-  return true;
+  return spte;
 }
 
 /* Load proper page from the information of Supplement page table. */
@@ -108,8 +108,14 @@ page_load_from_spt (void *upage)
   /* Get a frame of memory. */
   struct spte *spte = page_get_spte (upage);
 
-  if (!spte)
+  if (!spte) {
+    struct thread *t = thread_current ();
+
+    if ((uint8_t *) upage >= (uint8_t *) PHYS_BASE - STACK_MAX
+        && (uint8_t *) upage >= t->user_stack - 32)
+      return page_grow_stack (upage);
     return false;
+  }
 
   /* Do proper loading accoding to the style of the spte */
   if (spte->swap_slot == (block_sector_t) -1) {
@@ -125,23 +131,23 @@ page_load_from_file (struct spte *spte)
 {
   void *frame = frame_alloc (spte, PAL_USER);
   struct thread *t = thread_current ();
-  bool own_lock = false;
+//  bool own_lock = false;
   
   if (!frame)
     return false;
 
   /* Load this page. */
-  if (!(own_lock = lock_held_by_current_thread (&filesys_lock)))
-    lock_acquire (&filesys_lock);
+//  if (!(own_lock = lock_held_by_current_thread (&filesys_lock)))
+  lock_acquire (&filesys_lock);
   if (file_read_at (spte->file, frame, spte->read_bytes, spte->ofs)
       != (int) spte->read_bytes) {
-    if (!own_lock)
-      lock_release (&filesys_lock);
+//    if (!own_lock)
+    lock_release (&filesys_lock);
     frame_dealloc (spte);
     return false; 
   }
-  if (!own_lock)
-    lock_release (&filesys_lock);
+//  if (!own_lock)
+  lock_release (&filesys_lock);
   memset (frame + spte->read_bytes, 0, spte->zero_bytes);
 
   /* Add the page to the process's address space. */
@@ -165,6 +171,7 @@ page_load_from_swap (struct spte *spte)
   if (!frame)
     return false;
 
+  /* Allocate a phys page to the user page. */
   if (pagedir_get_page (t->pagedir, spte->upage) != NULL
       || !pagedir_set_page (t->pagedir, spte->upage,
                             frame, spte->writable)) {
@@ -172,7 +179,45 @@ page_load_from_swap (struct spte *spte)
     return false;
   }
 
+  /* Recover the data of the user page from the swap slot. */
   swap_in (spte, frame);
+  pagedir_set_dirty (t->pagedir, spte->upage, true);
+
+  return true;
+}
+
+/* Allocate new frame for stack. */
+bool
+page_grow_stack (void *upage)
+{
+  struct spte *spte = page_add_to_spte (NULL, 0,
+                                        pg_round_down (upage),
+                                        0, 0, true);
+
+  if (!spte)
+    return false;
+
+  void *frame = frame_alloc (spte, PAL_USER | PAL_ZERO);
+  struct thread *t = thread_current ();
+
+  if (!frame) {
+    hash_delete (&t->spt, &spte->elem);
+    free (spte);
+    return false;
+  }
+
+  /* Allocate a phys page to the user page. */
+  if (pagedir_get_page (t->pagedir, spte->upage) != NULL
+      || !pagedir_set_page (t->pagedir, spte->upage,
+                            frame, spte->writable)) {
+    frame_dealloc (spte);
+    hash_delete (&t->spt, &spte->elem);
+    free (spte);
+    return false;
+  }
+
+  /* The page of stack is dirty. It means when the page is evicted,
+     it should be saved to swap. */
   pagedir_set_dirty (t->pagedir, spte->upage, true);
 
   return true;

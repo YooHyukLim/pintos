@@ -9,6 +9,8 @@
 #include "filesys/filesys.h"
 #include "vm/frame.h"
 
+#define STACK_MAX (1 << 23)
+
 /* Supplement Page Table Entry Structure. */
 struct spte
 {
@@ -33,8 +35,9 @@ bool page_less_func (const struct hash_elem *,
 void page_action_func (struct hash_elem *, void *);
 
 struct spte * page_get_spte (void *);
-bool page_add_to_spte (struct file *, off_t, uint8_t *, uint32_t,
+struct spte * page_add_to_spte (struct file *, off_t, uint8_t *, uint32_t,
                        uint32_t, bool);
 bool page_load_from_spt (void *);
+bool page_grow_stack (void *);
 
 #endif /* vm/page.h */
