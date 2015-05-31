@@ -16,12 +16,13 @@ struct frame_elem
 {
   struct list_elem elem;
   struct thread *thread;
+  struct spte *spte;
 
   void *frame;
 };
 
 void frame_init (void);
-void * frame_alloc (enum palloc_flags);
-void frame_dealloc (void *);
+void * frame_alloc (struct spte *, enum palloc_flags);
+void frame_dealloc (struct spte *);
 
 #endif /* vm/frame.h */

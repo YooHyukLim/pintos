@@ -1,16 +1,17 @@
 #include <stdio.h>
 #include <string.h>
-#include <hash.h>
 #include <debug.h>
 #include "threads/thread.h"
-#include "threads/palloc.h"
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/syscall.h"
 #include "vm/page.h"
-#include "vm/frame.h"
+#include "vm/swap.h"
+
+static bool page_load_from_file (struct spte *);
+static bool page_load_from_swap (struct spte *);
 
 /* Get the Hash value of the user page. */
 unsigned
@@ -42,9 +43,14 @@ page_action_func (struct hash_elem *e, void *aux UNUSED)
   if ((frame = pagedir_get_page (thread_current ()->pagedir,
                                  (const void *) spte->upage))
       != NULL) {
-    frame_dealloc (frame);
-    pagedir_clear_page (thread_current ()->pagedir,
-                        spte->upage);
+    if (spte->fe != NULL && spte->fe->frame != NULL) {
+      pagedir_clear_page (thread_current ()->pagedir,
+                          spte->upage);
+      frame_dealloc (spte);
+    }
+
+    if (spte->swap_slot != (block_sector_t) -1)
+      swap_free (spte);
   }
   free (spte);
 }
@@ -83,7 +89,9 @@ page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
   spte->read_bytes = read_bytes;
   spte->zero_bytes = zero_bytes;
   spte->writable = writable;
-  spte->swap_slot = -1;
+  spte->mmap = false;
+  spte->fe = NULL;
+  spte->swap_slot = (block_sector_t) -1;
 
   if (hash_insert (&thread_current ()->spt, &spte->elem) != NULL) {
     free (spte);
@@ -103,30 +111,69 @@ page_load_from_spt (void *upage)
   if (!spte)
     return false;
 
-  void *frame = frame_alloc (PAL_USER);
+  /* Do proper loading accoding to the style of the spte */
+  if (spte->swap_slot == (block_sector_t) -1) {
+    //TODO what about mmap?
+    return page_load_from_file (spte);
+  } else
+    return page_load_from_swap (spte);
+}
+
+/* Load the data from the file. */
+static bool
+page_load_from_file (struct spte *spte)
+{
+  void *frame = frame_alloc (spte, PAL_USER);
   struct thread *t = thread_current ();
+  bool own_lock = false;
   
   if (!frame)
     return false;
 
   /* Load this page. */
-  lock_acquire (&filesys_lock);
+  if (!(own_lock = lock_held_by_current_thread (&filesys_lock)))
+    lock_acquire (&filesys_lock);
   if (file_read_at (spte->file, frame, spte->read_bytes, spte->ofs)
       != (int) spte->read_bytes) {
-    lock_release (&filesys_lock);
-    frame_dealloc (frame);
+    if (!own_lock)
+      lock_release (&filesys_lock);
+    frame_dealloc (spte);
     return false; 
   }
-  lock_release (&filesys_lock);
+  if (!own_lock)
+    lock_release (&filesys_lock);
   memset (frame + spte->read_bytes, 0, spte->zero_bytes);
 
   /* Add the page to the process's address space. */
   if (pagedir_get_page (t->pagedir, spte->upage) != NULL
       || !pagedir_set_page (t->pagedir, spte->upage,
                             frame, spte->writable)) {
-    frame_dealloc (frame);
+    frame_dealloc (spte);
     return false; 
   }
+
+  return true;
+}
+
+/* Load the data from the swap. */
+static bool
+page_load_from_swap (struct spte *spte)
+{
+  void *frame = frame_alloc (spte, PAL_USER);
+  struct thread *t = thread_current ();
+
+  if (!frame)
+    return false;
+
+  if (pagedir_get_page (t->pagedir, spte->upage) != NULL
+      || !pagedir_set_page (t->pagedir, spte->upage,
+                            frame, spte->writable)) {
+    frame_dealloc (spte);
+    return false;
+  }
+
+  swap_in (spte, frame);
+  pagedir_set_dirty (t->pagedir, spte->upage, true);
 
   return true;
 }

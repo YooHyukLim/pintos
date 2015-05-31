@@ -3,22 +3,28 @@
 
 #include <hash.h>
 #include <inttypes.h>
+#include "devices/block.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "vm/frame.h"
 
 /* Supplement Page Table Entry Structure. */
 struct spte
 {
-  struct hash_elem elem;
-  struct file *file;
-  off_t ofs;
-  uint8_t *upage;
-  uint32_t read_bytes;
-  uint32_t zero_bytes;
-  bool writable;
+  struct hash_elem elem;    /* Hash element. */
+  struct file *file;        /* File which has data. */
+  off_t ofs;                /* Offset of the file. */
+  uint8_t *upage;           /* User page address */
+  uint32_t read_bytes;      /* Bytes should be read */
+  uint32_t zero_bytes;      /* Rest bytes */
+  bool writable;            /* For read only file. */
+  bool mmap;                /* Is this page for mmap? */
 
-  size_t swap_slot;
+  struct frame_elem *fe;    /* The frame information. */
+
+  block_sector_t swap_slot; /* The index of swap slot.
+                               A value of block sector. */
 };
 
 unsigned page_hash_func (const struct hash_elem *, void *);
