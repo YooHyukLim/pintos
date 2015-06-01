@@ -146,6 +146,9 @@ process_exit (void)
   /* Release all opened file resources. */
   close_by_fd (CLOSE_ALL);
 
+  /* Release all mmap resources. */
+  munmap_by_id (CLOSE_ALL);
+
   /* Free the resource of child processes exited already. */
   free_child_process ();
 

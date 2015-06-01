@@ -11,6 +11,8 @@
 
 #define STACK_MAX (1 << 23)
 
+typedef int mapid_t;
+
 /* Supplement Page Table Entry Structure. */
 struct spte
 {
@@ -29,6 +31,19 @@ struct spte
                                A value of block sector. */
 };
 
+struct mmap_elem
+{
+  struct list_elem elem;
+  struct list mlist;
+  mapid_t id;
+};
+
+struct mmap_elem_entry
+{
+  struct list_elem elem;
+  struct spte *spte;
+};
+
 unsigned page_hash_func (const struct hash_elem *, void *);
 bool page_less_func (const struct hash_elem *,
                                const struct hash_elem *, void *);
@@ -36,7 +51,10 @@ void page_action_func (struct hash_elem *, void *);
 
 struct spte * page_get_spte (void *);
 struct spte * page_add_to_spte (struct file *, off_t, uint8_t *, uint32_t,
-                       uint32_t, bool);
+                                uint32_t, bool);
+struct mmap_elem_entry * page_add_mmap_spte (struct file *, off_t, uint8_t *,
+                                             uint32_t, uint32_t,
+                                             struct mmap_elem *);
 bool page_load_from_spt (void *);
 bool page_grow_stack (void *);
 

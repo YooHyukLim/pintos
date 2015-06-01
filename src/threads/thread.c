@@ -482,6 +482,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->process = NULL;
   t->opened = NULL;
 #endif
+
+  /* List for files of mmap. */
+  list_init (&t->mmap_list);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

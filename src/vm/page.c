@@ -75,8 +75,8 @@ page_get_spte (void *upage)
    the supplement page table entry. */
 struct spte *
 page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
-                 uint32_t read_bytes, uint32_t zero_bytes,
-                 bool writable)
+                  uint32_t read_bytes, uint32_t zero_bytes,
+                  bool writable)
 {
   struct spte *spte = (struct spte *) malloc (sizeof (struct spte));
   
@@ -101,6 +101,41 @@ page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
   return spte;
 }
 
+/* Add the page for mmap which has to be loaded to
+   the supplement page table. */
+struct mmap_elem_entry *
+page_add_mmap_spte (struct file *file, off_t ofs, uint8_t *upage,
+                    uint32_t read_bytes, uint32_t zero_bytes,
+                    struct mmap_elem *me)
+{
+  /* Check there is already a spt entry of upage given. */
+  struct spte *spte = page_get_spte (upage);
+  if (spte != NULL)
+    return NULL;
+
+  /* Add new spt entry for mmap. */
+  spte = page_add_to_spte (file, ofs, upage, read_bytes,
+                           zero_bytes, true);
+  if (!spte)
+    return NULL;
+  spte->mmap = true;
+
+  /* Create a new mmap element and add to mmap list. */
+  struct thread *t = thread_current ();
+  struct mmap_elem_entry *mee = malloc (sizeof (struct mmap_elem_entry));
+  if (!me) {
+    hash_delete (&t->spt, &spte->elem);
+    free (spte);
+    return NULL;
+  }
+  mee->spte = spte;
+
+  /* Add this entry to mmap elem in the mmap list of cur thread. */
+  list_push_back (&me->mlist, &mee->elem);
+
+  return mee;
+}
+
 /* Load proper page from the information of Supplement page table. */
 bool
 page_load_from_spt (void *upage)
@@ -118,8 +153,8 @@ page_load_from_spt (void *upage)
   }
 
   /* Do proper loading accoding to the style of the spte */
-  if (spte->swap_slot == (block_sector_t) -1) {
-    //TODO what about mmap?
+  if (spte->swap_slot == (block_sector_t) -1
+      || spte->mmap) {
     return page_load_from_file (spte);
   } else
     return page_load_from_swap (spte);
@@ -133,8 +168,9 @@ page_load_from_file (struct spte *spte)
   struct thread *t = thread_current ();
 //  bool own_lock = false;
   
-  if (!frame)
+  if (!frame) {
     return false;
+  }
 
   /* Load this page. */
 //  if (!(own_lock = lock_held_by_current_thread (&filesys_lock)))

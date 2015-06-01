@@ -1,4 +1,5 @@
 #include "threads/malloc.h"
+#include "userprog/syscall.h"
 #include "userprog/pagedir.h"
 #include "vm/frame.h"
 #include "vm/swap.h"
@@ -91,8 +92,14 @@ frame_evict (enum palloc_flags flag)
 
   /* Evict the frame chosen. */
   if (pagedir_is_dirty (fe->thread->pagedir, fe->spte->upage)) {
+    struct spte *spte = fe->spte;
     // TODO what about a file?
-    if (!swap_out (fe->spte, fe->frame)) {
+    if (spte->mmap) {
+      lock_acquire (&filesys_lock);
+      file_write_at (spte->file, spte->upage, spte->read_bytes,
+                     spte->ofs);
+      lock_release (&filesys_lock);
+    } else if (!swap_out (spte, fe->frame)) {
       return NULL;
     }
   }

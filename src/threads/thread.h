@@ -107,6 +107,7 @@ struct thread
 
     struct hash spt;                    /* Hash About a Supplement Page Table. */
     uint8_t *user_stack;                /* Stack pointer's value. */
+    struct list mmap_list;              /* List for files of mmap. */
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

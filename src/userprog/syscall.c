@@ -11,7 +11,6 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 #include "filesys/filesys.h"
-#include "filesys/file.h"
 
 #define MAX_ARGV 3
 #define STD_IN 0
@@ -38,6 +37,9 @@ static int sys_write (int, const void *, unsigned);
 static void sys_seek (int, unsigned);
 static unsigned sys_tell (int);
 static void sys_close (int);
+static mapid_t sys_mmap (int, void *);
+static void remove_mmap (struct mmap_elem *);
+static void sys_munmap (mapid_t);
 
 void
 syscall_init (void) 
@@ -122,7 +124,13 @@ syscall_handler (struct intr_frame *f)
     
     /* Project 3 and optionally project 4. */
     case SYS_MMAP:                   /* Map a file into memory. */
+      get_argv (2, argv, f->esp);
+      f->eax = sys_mmap (*argv[0], (void *) *argv[1]);
+      break;
+    
     case SYS_MUNMAP:                 /* Remove a memory mapping. */
+      get_argv (1, argv, f->esp);
+      sys_munmap (*argv[0]);
       break;
     
     /* Project 4 only. */
@@ -131,8 +139,6 @@ syscall_handler (struct intr_frame *f)
     case SYS_READDIR:                /* Reads a directory entry. */
     case SYS_ISDIR:                  /* Tests if a fd represents a directory. */
     case SYS_INUMBER:                /* Returns the inode number for a fd. */
-      break;
-
     default:                         /* Returns Error when system call num is wrong. */ 
       f->eax = -1;
       break;
@@ -456,11 +462,13 @@ close_by_fd (int fd)
   struct list_elem *elem = NULL, *tmp = NULL;
   struct list_elem *end = list_end (file_list);
   struct process_file *pf = NULL;
+  int fd_t;
 
   for (elem = list_begin (file_list); elem != end; elem = elem->next) {
     pf = list_entry (elem, struct process_file, elem);
 
     if (pf->fd == fd || fd == CLOSE_ALL) {
+      fd_t = pf->fd;
       tmp = elem;
       elem = elem->prev;
 
@@ -468,7 +476,7 @@ close_by_fd (int fd)
       file_close (pf->file);
       free (pf);
 
-      if (pf->fd == fd) {
+      if (fd_t == fd) {
         lock_release (&filesys_lock);
         return;
       }
@@ -476,6 +484,166 @@ close_by_fd (int fd)
   }
 
   lock_release (&filesys_lock);
+}
+
+/* Allocate new pages for mapping the given file. And return the 
+   proper mmap id. */
+static mapid_t
+sys_mmap (int fd, void *addr)
+{
+  if (addr == NULL || is_kernel_vaddr (addr) || (uint32_t) addr % PGSIZE != 0)
+    return -1;
+
+  /* Get the proper file by fd, and check whether the length
+     of file is 0. If then, return -1. */
+  lock_acquire (&filesys_lock);
+  struct file *file = get_file_by_fd (fd);
+  int length;
+  
+  if (!file || (length = file_length(file)) == 0) {
+    lock_release (&filesys_lock);
+    return -1;
+  }
+
+  /* Reopen the file for mmap. */
+  file = file_reopen (file);
+  lock_release (&filesys_lock);
+  if (!file) {
+    return -1;
+  }
+
+  struct thread *t = thread_current ();
+  struct list_elem *elem;
+  off_t ofs = 0;
+  mapid_t id = 0;
+
+  /* Get the proper id for mmap. */
+  if ((elem = list_rbegin (&t->mmap_list))
+      == list_head (&t->mmap_list))
+    id = 0;
+  else
+    id = list_entry (elem, struct mmap_elem, elem)->id + 1;
+
+  /* Create a list for elementes of sptes of mmap.
+     This list will be added to mmap list of current thread. */
+  struct mmap_elem *me = malloc (sizeof (struct mmap_elem));
+  if (!me) {
+    lock_acquire (&filesys_lock);
+    file_close (file);
+    lock_release (&filesys_lock);
+    return -1;
+  }
+  me->id = id;
+  list_init (&me->mlist);
+  list_push_back (&t->mmap_list, &me->elem);
+
+  /* Create elements of spte for mmap. */
+  while (length > 0) 
+  {
+    /* Calculate how to fill this page.
+       We will read PAGE_READ_BYTES bytes from FILE
+       and zero the final PAGE_ZERO_BYTES bytes. */
+    size_t page_read_bytes = length < PGSIZE ? length : PGSIZE;
+    size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+    /* Lazy Loading. Add the information of the file
+       to hash (supplement page table). */
+    if (!page_add_mmap_spte (file, ofs, addr, page_read_bytes,
+                             page_zero_bytes, me)) {
+      sys_munmap (id);
+      return -1;
+    }
+
+    /* Advance. */
+    length -= page_read_bytes;
+    addr += PGSIZE;
+    ofs += page_read_bytes;
+  }
+
+  return id;
+}
+
+/* Remove a memory mapping. */
+static void
+sys_munmap (mapid_t id)
+{
+  if (id < 0)
+    return;
+  munmap_by_id (id);
+}
+
+/* Apply all modifications about the file, and close it. */
+static void
+remove_mmap (struct mmap_elem *me)
+{
+  struct thread *t = thread_current ();
+  struct list_elem *elem = NULL, *tmp = NULL;
+  struct list_elem *end = list_end (&me->mlist);
+  struct mmap_elem_entry *mee = NULL;
+  struct file *file = NULL;
+  struct spte *spte = NULL;
+
+  for (elem = list_begin (&me->mlist); elem != end; elem = elem->next) {
+    mee = list_entry (elem, struct mmap_elem_entry, elem);
+
+    /* Remove the mmap_elem_entry from the mmap_elem */
+    tmp = elem;
+    elem = elem->prev;
+    list_remove (tmp);
+
+    spte = mee->spte;
+    if (!file)
+      file = spte->file;
+
+    if (spte->fe != NULL) {
+      if (pagedir_is_dirty (t->pagedir, spte->upage)) {
+        lock_acquire (&filesys_lock);
+        file_write_at (spte->file, spte->upage, spte->read_bytes,
+                       spte->ofs);
+        lock_release (&filesys_lock);
+      }
+      pagedir_clear_page (t->pagedir,
+                          spte->upage);
+      frame_dealloc (spte);
+    }
+    hash_delete (&t->spt, &spte->elem);
+    free (spte);
+    free (mee);
+  }
+
+  lock_acquire (&filesys_lock);
+  file_close (file);
+  lock_release (&filesys_lock);
+  free (me);
+}
+
+/* Munmap the mmaps by mapid_t. */
+void
+munmap_by_id (mapid_t id)
+{
+  struct list *map_list = &thread_current ()->mmap_list;
+  struct list_elem *elem = NULL, *tmp = NULL;
+  struct list_elem *end = list_end (map_list);
+  struct mmap_elem *me = NULL;
+  int id_t;
+
+  for (elem = list_begin (map_list); elem != end; elem = elem->next) {
+    me = list_entry (elem, struct mmap_elem, elem);
+
+    /* Remove the mmap_elem from the map_list */
+    if (me->id == id || id == CLOSE_ALL) {
+      id_t = me->id;
+      tmp = elem;
+      elem = elem->prev;
+      list_remove (tmp);
+
+      /* Remove the mmap_elem_entry from the mmap_elem */
+      remove_mmap (me);
+
+      if (id_t == id)
+        return;
+    }
+  }
 }
 
 /* Reads a byte at user virtual address UADDR.
