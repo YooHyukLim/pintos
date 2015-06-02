@@ -153,19 +153,21 @@ is_user_addr (const void *addr)
 static void
 is_readable_addr (const char *addr, unsigned bytes)
 {
-  is_user_addr ((const void *) addr);
-  is_user_addr ((const void *) addr+bytes-1);
+  unsigned i;
+  
+  for (i=0; i<bytes; i++)
+    is_user_addr ((const void *) addr + i);
 }
 
 /* Check whether the given buffers are valid to be written. */
 static void
 is_writable_addr (uint8_t *udst, unsigned bytes)
 {
-  if (is_kernel_vaddr (udst) || !put_user (udst, 0))
-    sys_exit (-1);
+  unsigned i;
 
-  if (is_kernel_vaddr (udst+bytes-1) || !put_user (udst+bytes-1, 0))
-    sys_exit (-1);
+  for (i=0; i<bytes; i++)
+    if (is_kernel_vaddr (udst + i) || !put_user (udst + i, 0))
+      sys_exit (-1);
 }
 
 /* Get the arguments from esp. */
