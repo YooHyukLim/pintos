@@ -26,22 +26,19 @@ struct spte
   bool mmap;                /* Is this page for mmap? */
 
   struct frame_elem *fe;    /* The frame information. */
+  struct list_elem melem;   /* The list element for mmap. */
 
   block_sector_t swap_slot; /* The index of swap slot.
                                A value of block sector. */
 };
 
+/* List element for mmap list. */
 struct mmap_elem
 {
-  struct list_elem elem;
-  struct list mlist;
-  mapid_t id;
-};
-
-struct mmap_elem_entry
-{
-  struct list_elem elem;
-  struct spte *spte;
+  struct list_elem elem;    /* List element. */
+  struct list mlist;        /* The list for the pages of
+                               mmap. */
+  mapid_t id;               /* Id of mmap. */
 };
 
 unsigned page_hash_func (const struct hash_elem *, void *);
@@ -52,9 +49,9 @@ void page_action_func (struct hash_elem *, void *);
 struct spte * page_get_spte (void *);
 struct spte * page_add_to_spte (struct file *, off_t, uint8_t *, uint32_t,
                                 uint32_t, bool);
-struct mmap_elem_entry * page_add_mmap_spte (struct file *, off_t, uint8_t *,
-                                             uint32_t, uint32_t,
-                                             struct mmap_elem *);
+struct spte * page_add_mmap_spte (struct file *, off_t, uint8_t *,
+                                  uint32_t, uint32_t,
+                                  struct mmap_elem *);
 bool page_load_from_spt (void *);
 bool page_grow_stack (void *);
 

@@ -103,7 +103,7 @@ page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
 
 /* Add the page for mmap which has to be loaded to
    the supplement page table. */
-struct mmap_elem_entry *
+struct spte *
 page_add_mmap_spte (struct file *file, off_t ofs, uint8_t *upage,
                     uint32_t read_bytes, uint32_t zero_bytes,
                     struct mmap_elem *me)
@@ -120,20 +120,10 @@ page_add_mmap_spte (struct file *file, off_t ofs, uint8_t *upage,
     return NULL;
   spte->mmap = true;
 
-  /* Create a new mmap element and add to mmap list. */
-  struct thread *t = thread_current ();
-  struct mmap_elem_entry *mee = malloc (sizeof (struct mmap_elem_entry));
-  if (!me) {
-    hash_delete (&t->spt, &spte->elem);
-    free (spte);
-    return NULL;
-  }
-  mee->spte = spte;
-
   /* Add this entry to mmap elem in the mmap list of cur thread. */
-  list_push_back (&me->mlist, &mee->elem);
+  list_push_back (&me->mlist, &spte->melem);
 
-  return mee;
+  return spte;
 }
 
 /* Load proper page from the information of Supplement page table. */
@@ -166,23 +156,19 @@ page_load_from_file (struct spte *spte)
 {
   void *frame = frame_alloc (spte, PAL_USER);
   struct thread *t = thread_current ();
-//  bool own_lock = false;
   
   if (!frame) {
     return false;
   }
 
   /* Load this page. */
-//  if (!(own_lock = lock_held_by_current_thread (&filesys_lock)))
   lock_acquire (&filesys_lock);
   if (file_read_at (spte->file, frame, spte->read_bytes, spte->ofs)
       != (int) spte->read_bytes) {
-//    if (!own_lock)
     lock_release (&filesys_lock);
     frame_dealloc (spte);
     return false; 
   }
-//  if (!own_lock)
   lock_release (&filesys_lock);
   memset (frame + spte->read_bytes, 0, spte->zero_bytes);
 
@@ -233,6 +219,8 @@ page_grow_stack (void *upage)
   if (!spte)
     return false;
 
+  /* Allocate new frame for stack. The frame will be initialized
+     by all zero. */
   void *frame = frame_alloc (spte, PAL_USER | PAL_ZERO);
   struct thread *t = thread_current ();
 

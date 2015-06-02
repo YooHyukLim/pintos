@@ -93,7 +93,7 @@ frame_evict (enum palloc_flags flag)
   /* Evict the frame chosen. */
   if (pagedir_is_dirty (fe->thread->pagedir, fe->spte->upage)) {
     struct spte *spte = fe->spte;
-    // TODO what about a file?
+
     if (spte->mmap) {
       lock_acquire (&filesys_lock);
       file_write_at (spte->file, spte->upage, spte->read_bytes,

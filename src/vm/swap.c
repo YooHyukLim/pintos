@@ -118,7 +118,5 @@ swap_free (struct spte *spte)
 
   lock_acquire (&swap_lock);
   bitmap_set (swap_bitmap, bm_index, FREE);
-//  if (bitmap_test (swap_bitmap, bm_index) == USED)
-//    bitmap_flip (swap_bitmap, bm_index);
   lock_release (&swap_lock);
 }

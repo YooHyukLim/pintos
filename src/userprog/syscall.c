@@ -579,22 +579,23 @@ remove_mmap (struct mmap_elem *me)
   struct thread *t = thread_current ();
   struct list_elem *elem = NULL, *tmp = NULL;
   struct list_elem *end = list_end (&me->mlist);
-  struct mmap_elem_entry *mee = NULL;
   struct file *file = NULL;
   struct spte *spte = NULL;
 
   for (elem = list_begin (&me->mlist); elem != end; elem = elem->next) {
-    mee = list_entry (elem, struct mmap_elem_entry, elem);
+    spte = list_entry (elem, struct spte, melem);
 
     /* Remove the mmap_elem_entry from the mmap_elem */
     tmp = elem;
     elem = elem->prev;
     list_remove (tmp);
 
-    spte = mee->spte;
     if (!file)
       file = spte->file;
 
+    /* If the user page got the frame, deallocate it.
+       Before deallocation, must check whether the page is dirty
+       or not. And if it is dirty, write the data to the file. */
     if (spte->fe != NULL) {
       if (pagedir_is_dirty (t->pagedir, spte->upage)) {
         lock_acquire (&filesys_lock);
@@ -608,7 +609,6 @@ remove_mmap (struct mmap_elem *me)
     }
     hash_delete (&t->spt, &spte->elem);
     free (spte);
-    free (mee);
   }
 
   lock_acquire (&filesys_lock);

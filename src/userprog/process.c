@@ -495,7 +495,7 @@ load (char *file_name_, void (**eip) (void), void **esp)
 
 /* load() helpers. */
 
-static bool install_page (void *upage, void *kpage, bool writable);
+//static bool install_page (void *upage, void *kpage, bool writable);
 
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
@@ -691,13 +691,13 @@ args_parsing (void **esp, char *file_name, char **save_ptr)
    with palloc_get_page().
    Returns true on success, false if UPAGE is already mapped or
    if memory allocation fails. */
-static bool
-install_page (void *upage, void *kpage, bool writable)
-{
-  struct thread *t = thread_current ();
-
-  /* Verify that there's not already a page at that virtual
-     address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
-}
+//static bool
+//install_page (void *upage, void *kpage, bool writable)
+//{
+//  struct thread *t = thread_current ();
+//
+//  /* Verify that there's not already a page at that virtual
+//     address, then map our page there. */
+//  return (pagedir_get_page (t->pagedir, upage) == NULL
+//          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+//}
