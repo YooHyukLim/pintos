@@ -64,7 +64,7 @@ frame_dealloc (struct spte *spte)
   lock_release (&frame_lock);
 }
 
-/* Evict a frame, and return new frame. */
+/* Evict a frame, and return a new frame available. */
 static void *
 frame_evict (enum palloc_flags flag)
 {

@@ -113,36 +113,38 @@ page_add_mmap_spte (struct file *file, off_t ofs, uint8_t *upage,
   if (spte != NULL)
     return NULL;
 
-  /* Add new spt entry for mmap. */
+  /* Add a new spt entry for mmap. */
   spte = page_add_to_spte (file, ofs, upage, read_bytes,
                            zero_bytes, true);
   if (!spte)
     return NULL;
   spte->mmap = true;
 
-  /* Add this entry to mmap elem in the mmap list of cur thread. */
+  /* Add this entry to the mmap list of cur thread. */
   list_push_back (&me->mlist, &spte->melem);
 
   return spte;
 }
 
-/* Load proper page from the information of Supplement page table. */
+/* Load the proper page from the information
+   of Supplement page table. */
 bool
 page_load_from_spt (void *upage)
 {
-  /* Get a frame of memory. */
   struct spte *spte = page_get_spte (upage);
 
   if (!spte) {
     struct thread *t = thread_current ();
 
+    /* If the given upage is for stack, then allocate a new
+       memory frame and grow the stack. */
     if ((uint8_t *) upage >= (uint8_t *) PHYS_BASE - STACK_MAX
         && (uint8_t *) upage >= t->user_stack - 32)
       return page_grow_stack (upage);
     return false;
   }
 
-  /* Do proper loading accoding to the style of the spte */
+  /* Do proper loading according to the style of the spte. */
   if (spte->swap_slot == (block_sector_t) -1
       || spte->mmap) {
     return page_load_from_file (spte);
@@ -208,7 +210,7 @@ page_load_from_swap (struct spte *spte)
   return true;
 }
 
-/* Allocate new frame for stack. */
+/* Allocate a new frame for stack. */
 bool
 page_grow_stack (void *upage)
 {
@@ -219,7 +221,7 @@ page_grow_stack (void *upage)
   if (!spte)
     return false;
 
-  /* Allocate new frame for stack. The frame will be initialized
+  /* Allocate a new frame for stack. The frame will be initialized
      by all zero. */
   void *frame = frame_alloc (spte, PAL_USER | PAL_ZERO);
   struct thread *t = thread_current ();
