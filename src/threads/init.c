@@ -132,7 +132,7 @@ main (void)
   filesys_init (format_filesys);
 #endif
 
-  /* Initialize Frame. */
+  /* Initialize Frame and Code table. */
   frame_init ();
 
   /* Initialize Swap. */

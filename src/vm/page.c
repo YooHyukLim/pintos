@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <debug.h>
-#include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
@@ -90,6 +89,7 @@ page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
   spte->zero_bytes = zero_bytes;
   spte->writable = writable;
   spte->mmap = false;
+  spte->t = thread_current ();
   spte->fe = NULL;
   spte->swap_slot = (block_sector_t) -1;
 

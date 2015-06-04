@@ -4,6 +4,7 @@
 #include <hash.h>
 #include <inttypes.h>
 #include "devices/block.h"
+#include "threads/thread.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -25,8 +26,10 @@ struct spte
   bool writable;            /* For read only file. */
   bool mmap;                /* Is this page for mmap? */
 
+  struct thread *t;         /* The thread information. */
   struct frame_elem *fe;    /* The frame information. */
   struct list_elem melem;   /* The list element for mmap. */
+  struct list_elem celem;   /* The list element for code table. */
 
   block_sector_t swap_slot; /* The index of swap slot.
                                A value of block sector. */

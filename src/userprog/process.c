@@ -11,7 +11,6 @@
 #include "userprog/tss.h"
 #include "userprog/syscall.h"
 #include "filesys/directory.h"
-#include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/init.h"
@@ -138,11 +137,6 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
   
-  /* Allow the opened file of this thread, and close it. */
-  lock_acquire (&filesys_lock);
-  file_close (cur->opened);
-  lock_release (&filesys_lock);
-
   /* Release all opened file resources. */
   close_by_fd (CLOSE_ALL);
 
@@ -154,6 +148,20 @@ process_exit (void)
 
   /* Release all page table entries. */
   hash_destroy (&cur->spt, page_action_func);
+
+  /* Free the code_entry for the file of this process,
+     if and only if there isn't any process referencing
+     the file. */
+  if (cur->opened) {
+    lock_acquire (&frame_lock);
+    frame_free_code_entry (file_get_inode (cur->opened));
+    lock_release (&frame_lock);
+  }
+  
+  /* Allow the opened file of this thread, and close it. */
+  lock_acquire (&filesys_lock);
+  file_close (cur->opened);
+  lock_release (&filesys_lock);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -374,6 +382,7 @@ load (char *file_name_, void (**eip) (void), void **esp)
   bool success = false;
   int i;
   char *file_name, *save_ptr;
+  struct code_entry *ce = NULL;
 
   file_name = strtok_r (file_name_, " ", &save_ptr);
 
@@ -393,6 +402,25 @@ load (char *file_name_, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+
+  /* If there is no code entry for this file, then
+     create new code entry and push to code table. */
+  lock_acquire (&frame_lock);
+  ce = frame_get_code_entry (file_get_inode (file));
+  if (!ce) {
+    ce = malloc (sizeof (struct code_entry));
+    if (!ce) {
+      lock_release (&frame_lock);
+      goto done;
+    }
+
+    ce->ref = 1;
+    ce->inode = file_get_inode (file);
+    list_init (&ce->frames);
+    list_push_back (&code_list, &ce->elem);
+  } else
+    ce->ref++;
+  lock_release (&frame_lock);
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
