@@ -132,11 +132,12 @@ page_add_mmap_spte (struct file *file, off_t ofs, uint8_t *upage,
 bool
 page_load_from_spt (void *upage)
 {
+  struct thread *t = thread_current ();
+  lock_acquire (&t->spt_lock);
   struct spte *spte = page_get_spte (upage);
+  lock_release (&t->spt_lock);
 
   if (!spte) {
-    struct thread *t = thread_current ();
-
     /* If the given upage is for stack, then allocate a new
        memory frame and grow the stack. */
     if ((uint8_t *) upage >= (uint8_t *) PHYS_BASE - STACK_MAX
@@ -146,11 +147,10 @@ page_load_from_spt (void *upage)
   }
 
   /* Do proper loading according to the style of the spte. */
-  if (spte->swap == false
-      || spte->mmap) {
-    return page_load_from_file (spte);
-  } else
+  if (spte->swap == true)
     return page_load_from_swap (spte);
+  else
+    return page_load_from_file (spte);
 }
 
 /* Load the data from the file. */

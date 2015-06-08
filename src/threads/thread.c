@@ -9,7 +9,6 @@
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
 #include "threads/switch.h"
-#include "threads/synch.h"
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -485,6 +484,8 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* List for files of mmap. */
   list_init (&t->mmap_list);
+
+  lock_init (&t->spt_lock);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

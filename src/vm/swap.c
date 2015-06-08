@@ -78,11 +78,9 @@ swap_out (struct spte *spte, void *frame)
   spte->swap_slot = bm_index * SWAP_CNT;
 
   /* Write the data of the frame to the swap slot. */
-  lock_acquire (&filesys_lock);
   for (i = 0; i < SWAP_CNT; i++)
     block_write (swap_block, spte->swap_slot + i,
                  frame + i * BLOCK_SECTOR_SIZE);
-  lock_release (&filesys_lock);
 
   return true;
 }
@@ -104,7 +102,6 @@ swap_in (struct spte *spte, void *frame)
 
   /* Reset the swap slot index of spte to notify that the data of
      this spte was already loaded. */
-  spte->swap = false;
   spte->swap_slot = (block_sector_t) -1;
 
   lock_acquire (&swap_lock);

@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include <hash.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -106,6 +107,7 @@ struct thread
 #endif
 
     struct hash spt;                    /* Hash About a Supplement Page Table. */
+    struct lock spt_lock;               /* Lock for supplement page table. */
     uint8_t *user_stack;                /* Stack pointer's value. */
     struct list mmap_list;              /* List for files of mmap. */
 

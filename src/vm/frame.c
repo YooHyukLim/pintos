@@ -221,6 +221,7 @@ frame_evict (enum palloc_flags flag)
      update, if and only if the frame is dirty. */
   if (spte->writable
       && pagedir_is_dirty (spte->t->pagedir, spte->upage)) {
+    lock_acquire (&spte->t->spt_lock);
     dirty = true;
   }
 
@@ -241,8 +242,12 @@ frame_evict (enum palloc_flags flag)
       file_write_at (spte->file, fe->frame, spte->read_bytes,
                      spte->ofs);
       lock_release (&filesys_lock);
-    } else if (!swap_out (spte, fe->frame))
+    } else if (!swap_out (spte, fe->frame)) {
+      lock_release (&spte->t->spt_lock);
       return NULL;
+    }
+
+    lock_release (&spte->t->spt_lock);
   }
 
   if (!spte->writable)
