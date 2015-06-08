@@ -31,6 +31,11 @@ frame_alloc (struct spte *spte, enum palloc_flags flag)
     spte->fe = fe;
     list_push_back (&fe->sptes, &spte->celem);
     fe->ref++;
+
+    /* Move the frame entry to the position which means
+       recently accessed. */
+    list_remove (&fe->elem);
+    list_push_back (&frame_list, &fe->elem);
     lock_release (&frame_lock);
 
     return fe->frame;
