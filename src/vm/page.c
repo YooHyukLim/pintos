@@ -92,6 +92,7 @@ page_add_to_spte (struct file *file, off_t ofs, uint8_t *upage,
   spte->t = thread_current ();
   spte->fe = NULL;
   spte->swap_slot = (block_sector_t) -1;
+  spte->swap = false;
 
   if (hash_insert (&thread_current ()->spt, &spte->elem) != NULL) {
     free (spte);
@@ -145,7 +146,7 @@ page_load_from_spt (void *upage)
   }
 
   /* Do proper loading according to the style of the spte. */
-  if (spte->swap_slot == (block_sector_t) -1
+  if (spte->swap == false
       || spte->mmap) {
     return page_load_from_file (spte);
   } else

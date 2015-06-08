@@ -74,6 +74,7 @@ swap_out (struct spte *spte, void *frame)
   /* Get the swap slot's index. Because it is block_sector_t,
      we have to change the value which is gotten from bitmap
      to the value * SWAP_CNT. */
+  spte->swap = true;
   spte->swap_slot = bm_index * SWAP_CNT;
 
   /* Write the data of the frame to the swap slot. */
@@ -97,14 +98,13 @@ swap_in (struct spte *spte, void *frame)
   size_t i;
 
   /* Read the data from swap slot to the frame. */
-  lock_acquire (&filesys_lock);
   for (i = 0; i < SWAP_CNT; i++)
     block_read (swap_block, spte->swap_slot + i,
                 frame + i * BLOCK_SECTOR_SIZE);
-  lock_release (&filesys_lock);
 
   /* Reset the swap slot index of spte to notify that the data of
      this spte was already loaded. */
+  spte->swap = false;
   spte->swap_slot = (block_sector_t) -1;
 
   lock_acquire (&swap_lock);

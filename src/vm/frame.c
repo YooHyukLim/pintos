@@ -29,7 +29,7 @@ frame_alloc (struct spte *spte, enum palloc_flags flag)
   if (!spte->writable
       && (fe = frame_get_from_code (spte))) {
     spte->fe = fe;
-    list_push_back (&fe->sptes, &spte->celem);
+    list_push_back (&fe->sptes, &spte->felem);
     fe->ref++;
 
     /* Move the frame entry to the position which means
@@ -61,7 +61,7 @@ frame_alloc (struct spte *spte, enum palloc_flags flag)
   fe->frame = frame;
   fe->ofs = spte->ofs;
   list_init (&fe->sptes);
-  list_push_back (&fe->sptes, &spte->celem);
+  list_push_back (&fe->sptes, &spte->felem);
   fe->ref = 1;
   spte->fe = fe;
 
@@ -92,7 +92,7 @@ frame_dealloc (struct spte *spte)
 
   lock_acquire (&frame_lock);
 
-  list_remove (&spte->celem);
+  list_remove (&spte->felem);
   spte->fe = NULL;
 
   if (fe->ref == 1) {
@@ -196,7 +196,7 @@ frame_evict (enum palloc_flags flag)
     /* Check all threads referencing the frame. */
     for (e = list_begin (&fe->sptes);
          e != list_end (&fe->sptes); e = list_next (e)) {
-      struct spte *spte = list_entry (e, struct spte, celem);
+      struct spte *spte = list_entry (e, struct spte, felem);
 
       /* If the frame is accessed recently, reset the frame. */
       if (pagedir_is_accessed (spte->t->pagedir, spte->upage)) {
@@ -214,31 +214,35 @@ frame_evict (enum palloc_flags flag)
 
   /* Evict the frame chosen. */
   struct spte *spte = list_entry (list_begin (&fe->sptes),
-                                  struct spte, celem);
+                                  struct spte, felem);
+  bool dirty = false;
 
   /* If the frame is allowed to be written, then check its dirty and
      update, if and only if the frame is dirty. */
   if (spte->writable
       && pagedir_is_dirty (spte->t->pagedir, spte->upage)) {
-
-    if (spte->mmap) {
-      lock_acquire (&filesys_lock);
-      file_write_at (spte->file, spte->upage, spte->read_bytes,
-                     spte->ofs);
-      lock_release (&filesys_lock);
-    } else if (!swap_out (spte, fe->frame))
-      return NULL;
-
+    dirty = true;
   }
 
   /* Clear the upage in all pagedirs of threads referencing
      the frame. */
   for (e = list_begin (&fe->sptes);
        e != list_end (&fe->sptes); e = list_next (e)) {
-    spte = list_entry (e, struct spte, celem);
+    spte = list_entry (e, struct spte, felem);
     pagedir_clear_page (spte->t->pagedir, spte->upage);
-    list_remove (&spte->celem);
+    list_remove (&spte->felem);
     spte->fe = NULL;
+  }
+
+  /* If the user page was dirty, then save it.  */
+  if (dirty) {
+    if (spte->mmap) {
+      lock_acquire (&filesys_lock);
+      file_write_at (spte->file, fe->frame, spte->read_bytes,
+                     spte->ofs);
+      lock_release (&filesys_lock);
+    } else if (!swap_out (spte, fe->frame))
+      return NULL;
   }
 
   if (!spte->writable)

@@ -29,10 +29,12 @@ struct spte
   struct thread *t;         /* The thread information. */
   struct frame_elem *fe;    /* The frame information. */
   struct list_elem melem;   /* The list element for mmap. */
-  struct list_elem celem;   /* The list element for code table. */
+  struct list_elem felem;   /* The list element for frame. */
 
   block_sector_t swap_slot; /* The index of swap slot.
                                A value of block sector. */
+  bool swap;                /* Whether the spte's data in
+                               swap slot. */
 };
 
 /* List element for mmap list. */
